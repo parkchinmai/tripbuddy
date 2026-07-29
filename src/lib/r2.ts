@@ -1,5 +1,4 @@
-// API_BASE: Cloudflare Worker URL — hardcoded for Cloudflare Pages (no runtime env vars)
-const API_BASE = import.meta.env.VITE_API_URL || 'https://trip-buddy-api.park-chinmai.workers.dev';
+const API_BASE = '';
 
 export interface UploadResult {
   key: string;
@@ -21,5 +20,8 @@ export async function uploadImage(file: File): Promise<UploadResult> {
     throw new Error(data.error || 'อัพโหลดไฟล์ไม่สำเร็จ');
   }
 
-  return data as UploadResult;
+  return {
+    key: data.key,
+    url: `${API_BASE}/api/images/${data.key}`,
+  };
 }
