@@ -3,8 +3,13 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:3000,https://trip-buddy.pages.dev"
+ALLOWED_ORIGINS = "http://localhost:3000,https://tripbuddy2.park-chinmai.workers.dev"
 
 [[r2_buckets]]
 binding = "TRIP_IMAGES"
-bucket_name = "trip-images"
+bucket_name = "tripbuddy2"
+
+[[d1_databases]]
+binding = "trip_buddy_db"
+database_name = "trip-buddy-db"
+database_id = "e0effddb-a9d9-44e8-8541-a9366deebeba"
