@@ -30,19 +30,29 @@ export default function App() {
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState<boolean>(false);
 
   // Handle Login Step 1
-  const handleLoginSuccess = (phone: string) => {
+  const handleLoginSuccess = async (phone: string) => {
     setPhoneNumber(phone);
     
     // Check if there is an existing profile saved for this phone number
     const savedProfile = localStorage.getItem(`user_profile_${phone}`);
+
+    // Also check API for admin status
+    let apiProfile: Partial<UserProfile> | null = null;
+    try {
+      const res = await fetch(`/api/profile/${encodeURIComponent(phone)}`);
+      if (res.ok) {
+        apiProfile = await res.json();
+      }
+    } catch {}
+
     if (phone === '081-234-5678') {
       // For the default demo profile
-      setProfile(defaultProfile);
+      setProfile({ ...defaultProfile, isAdmin: apiProfile?.isAdmin ?? defaultProfile.isAdmin });
       setSessionState('welcome-back');
     } else if (savedProfile) {
       try {
         const parsed = JSON.parse(savedProfile) as UserProfile;
-        setProfile(parsed);
+        setProfile({ ...parsed, isAdmin: apiProfile?.isAdmin ?? parsed.isAdmin });
         setSessionState('welcome-back');
       } catch (e) {
         setSessionState('onboarding');
