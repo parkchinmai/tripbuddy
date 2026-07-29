@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_URL || '';
+// API_BASE: Cloudflare Worker URL — hardcoded for Cloudflare Pages (no runtime env vars)
+const API_BASE = import.meta.env.VITE_API_URL || 'https://trip-buddy-api.park-chinmai.workers.dev';
 
 export interface UploadResult {
   key: string;
@@ -6,10 +7,6 @@ export interface UploadResult {
 }
 
 export async function uploadImage(file: File): Promise<UploadResult> {
-  if (!API_BASE) {
-    throw new Error('VITE_API_URL ยังไม่ได้ตั้งค่า — โปรดตั้งค่าในไฟล์ .env ก่อน');
-  }
-
   const form = new FormData();
   form.append('file', file);
 
