@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Kanit:wght@300;400;500;600;700&family=Mitr:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", "Kanit", "Mitr", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #006591;
+  --color-primary-hover: #004c6e;
+  --color-primary-light: #e5eeff;
+  --color-secondary-orange: #fd761a;
+  --color-secondary-orange-hover: #e05e0c;
+  --color-secondary-orange-light: #ffdbca;
+  --color-tertiary-green: #00b351;
+  --color-tertiary-green-hover: #008a3d;
+  --color-tertiary-green-light: #e6ffef;
+  --color-surface-bg: #f8f9ff;
+  --color-on-surface-dark: #0b1c30;
+}
+
+html, body {
+  font-family: var(--font-sans);
+}
+
+/* Material Symbols Outlined Support */
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Animations */
+@keyframes float {
+  0% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-12px) rotate(2deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s infinite ease-in-out;
+}
+
+/* Glass Card */
+.glass-card {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+

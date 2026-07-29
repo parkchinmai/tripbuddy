@@ -1,0 +1,6 @@
+{
+  "name": "เที่ยวด้วยกัน",
+  "description": "จัดการงบประมาณและหารค่าใช้จ่ายกลุ่มเมื่อเดินทางท่องเที่ยวร่วมกันอย่างสะดวกและแม่นยำ",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
