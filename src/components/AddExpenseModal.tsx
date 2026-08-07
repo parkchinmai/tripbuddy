@@ -140,6 +140,14 @@ export default function AddExpenseModal({ isOpen, onClose, onAddExpense, onUpdat
         setSplitMode(hasShares ? 'unequal' : 'equal');
         setCustomShares(shares);
       }
+
+      // Restore the original split-with selection (uncheck members who were not part of it)
+      const savedSplitIds = editingExpense.splitWithIds || [];
+      const savedSplitNames = editingExpense.splitWith || [];
+      setPartners(prev => prev.map(p => ({
+        ...p,
+        checked: savedSplitIds.includes(p.id || '') || savedSplitNames.includes(p.name),
+      })));
     }
   }, [editingExpense, isOpen]);
 
