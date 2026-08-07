@@ -305,7 +305,7 @@ export default function TripDetail({
     const key = targetKey || `${from}-${to}`;
     setSettlementStates(prev => ({
       ...prev,
-      [key]: { ...prev[key], isSettled: false, slipUrl: undefined, settledAmount: 0 },
+      [key]: { ...prev[key], isSettled: false, slipUrl: undefined, settledAmount: prev[key]?.settledAmount ?? 0 },
     }));
     await fetch(`/api/trips/${trip.id}/settlements`, {
       method: 'PUT',
