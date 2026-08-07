@@ -507,6 +507,38 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
     return json({ ok: true }, 200, cors);
   }
 
+  // PUT /api/trips/:id/notes/:noteId
+  if (request.method === 'PUT' && path.match(/^\/api\/trips\/[^/]+\/notes\/[^/]+$/)) {
+    const parts = path.split('/');
+    const id = parts[3];
+    const noteId = parts[5];
+    const viewer = await getUserByPhone(db, url.searchParams.get('user'));
+    if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์' }, 401, cors);
+    const profile = await db.prepare('SELECT name FROM profiles WHERE id = ?').bind(viewer.id).first();
+    const note = await db.prepare('SELECT * FROM notes WHERE id = ? AND trip_id = ?').bind(noteId, id).first();
+    if (!note) return json({ error: 'ไม่พบโน้ต' }, 404, cors);
+    if (viewer.is_admin !== 1 && (!profile || note.author_name !== profile.name)) {
+      return json({ error: 'ไม่ได้รับสิทธิ์แก้ไขโน้ตนี้' }, 403, cors);
+    }
+    const body = await request.json();
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    const images = Array.isArray(body.images) ? (body.images as string[]).filter((s: string) => typeof s === 'string') : [];
+    if (!text && images.length === 0) return json({ error: 'กรุณาพิมพ์ข้อความหรือแนบรูปภาพ' }, 400, cors);
+    let prevImages: string[] = [];
+    try { prevImages = note.images ? (JSON.parse(note.images) as string[]) : []; } catch {}
+    const removed = prevImages.filter((img) => !images.includes(img));
+    try {
+      for (const img of removed) {
+        const m = String(img).match(/\/api\/images\/(.+)$/);
+        if (m && env.TRIP_IMAGES) await env.TRIP_IMAGES.delete(m[1]).catch(() => {});
+      }
+    } catch {}
+    await db.prepare(
+      'UPDATE notes SET text = ?, images = ? WHERE id = ?'
+    ).bind(text, images.length ? JSON.stringify(images) : null, noteId).run();
+    return json({ ok: true }, 200, cors);
+  }
+
   // POST /api/notes/:noteId/reactions  — toggle reaction for current member
   if (request.method === 'POST' && path.match(/^\/api\/notes\/[^/]+\/reactions$/)) {
     const noteId = path.split('/')[3];

@@ -75,7 +75,12 @@ export default function NotesTab({ tripId, currentUserName, currentUserPhone, me
   const [uploadingImages, setUploadingImages] = useState(false);
   const [bursts, setBursts] = useState<Burst[]>([]);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   const loadNotes = async () => {
     try {
@@ -183,7 +188,51 @@ export default function NotesTab({ tripId, currentUserName, currentUserPhone, me
     }
   };
 
-  const canDelete = (note: Note) => currentUserName === note.author_name;
+  const startEdit = (note: Note) => {
+    setEditingId(note.id);
+    setEditText(note.text || '');
+    setEditImages(note.images || []);
+  };
+
+  const attachEditImages = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const remaining = MAX_IMAGES - editImages.length;
+    if (remaining <= 0) { alert(`แนบรูปได้สูงสุด ${MAX_IMAGES} รูป`); return; }
+    const selected = Array.from(files).slice(0, remaining);
+    setUploadingImages(true);
+    try {
+      const urls: string[] = [];
+      for (const f of selected) {
+        const result = await uploadImage(f, 'notes');
+        urls.push(result.url);
+      }
+      setEditImages(prev => [...prev, ...urls]);
+    } catch (err: any) {
+      alert(err?.message || 'อัปโหลดรูปไม่สำเร็จ');
+    }
+    setUploadingImages(false);
+    if (editFileInputRef.current) editFileInputRef.current.value = '';
+  };
+
+  const saveEdit = async (note: Note) => {
+    if ((!editText.trim() && editImages.length === 0) || saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/trips/${tripId}/notes/${note.id}?user=${encodeURIComponent(currentUserPhone)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: editText.trim(), images: editImages }),
+      });
+      if (!res.ok) throw new Error('edit failed');
+      setEditingId(null);
+      await loadNotes();
+    } catch {
+      alert('แก้ไขโน้ตไม่สำเร็จ กรุณาลองอีกครั้ง');
+    }
+    setSaving(false);
+  };
+
+  const canManage = (note: Note) => currentUserName === note.author_name;
 
   return (
     <div className="space-y-5">
@@ -270,35 +319,107 @@ export default function NotesTab({ tripId, currentUserName, currentUserPhone, me
                       <p className="text-sm font-extrabold text-slate-800 truncate">{note.author_name}</p>
                       <p className="text-[11px] text-slate-400 font-semibold">{formatTime(note.created_at)}</p>
                     </div>
-                    {canDelete(note) && (
-                      <button
-                        onClick={() => deleteNote(note)}
-                        className="text-slate-300 hover:text-rose-500 cursor-pointer shrink-0"
-                        title="ลบโน้ต"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
+                    {canManage(note) && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => startEdit(note)}
+                          className="text-slate-300 hover:text-primary cursor-pointer"
+                          title="แก้ไขโน้ต"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button
+                          onClick={() => deleteNote(note)}
+                          className="text-slate-300 hover:text-rose-500 cursor-pointer"
+                          title="ลบโน้ต"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
 
-              {note.text && (
-                <p className="mt-3 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap break-words">{note.text}</p>
-              )}
-
-              {note.images.length > 0 && (
-                <div className={`mt-3 grid gap-2 ${note.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                  {note.images.map((url, i) => (
-                    <img
-                      key={i}
-                      src={url}
-                      alt=""
-                      onClick={() => setLightbox(url)}
-                      className={`rounded-xl object-cover border border-slate-100 cursor-pointer hover:opacity-90 transition-opacity ${note.images.length === 1 ? 'max-h-72 w-full' : 'aspect-square w-full'}`}
+              {editingId === note.id ? (
+                <div className="mt-3 bg-slate-50 border border-slate-100 rounded-2xl p-3">
+                  <textarea
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    placeholder="เขียนโน้ต..."
+                    rows={3}
+                    className="w-full resize-none bg-white border border-slate-100 rounded-xl px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  {editImages.length > 0 && (
+                    <div className="grid grid-cols-4 gap-2 mt-2">
+                      {editImages.map((url, i) => (
+                        <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-slate-100">
+                          <img src={url} alt="" className="w-full h-full object-cover" />
+                          <button
+                            onClick={() => setEditImages(prev => prev.filter((_, j) => j !== i))}
+                            className="absolute top-1 right-1 w-5 h-5 bg-[#0b1c30]/60 text-white rounded-full flex items-center justify-center text-[10px] cursor-pointer hover:bg-[#0b1c30]"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between mt-2 gap-2">
+                    <button
+                      onClick={() => editFileInputRef.current?.click()}
+                      disabled={uploadingImages}
+                      className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary-light px-3 py-2 rounded-full cursor-pointer hover:bg-primary hover:text-white transition-all disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">image</span>
+                      {uploadingImages ? 'กำลังอัปโหลด...' : 'แนบรูป'}
+                    </button>
+                    <input
+                      ref={editFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => attachEditImages(e.target.files)}
                     />
-                  ))}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-3 py-2 rounded-full cursor-pointer hover:bg-slate-50"
+                      >
+                        ยกเลิก
+                      </button>
+                      <button
+                        onClick={() => saveEdit(note)}
+                        disabled={(!editText.trim() && editImages.length === 0) || saving}
+                        className="bg-primary hover:bg-primary-hover text-white font-extrabold text-xs px-4 py-2 rounded-full cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">check</span>
+                        {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  {note.text && (
+                    <p className="mt-3 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap break-words">{note.text}</p>
+                  )}
+
+                  {note.images.length > 0 && (
+                    <div className={`mt-3 grid gap-2 ${note.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                      {note.images.map((url, i) => (
+                        <img
+                          key={i}
+                          src={url}
+                          alt=""
+                          onClick={() => setLightbox(url)}
+                          className={`rounded-xl object-cover border border-slate-100 cursor-pointer hover:opacity-90 transition-opacity ${note.images.length === 1 ? 'max-h-72 w-full' : 'aspect-square w-full'}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Reactions */}
