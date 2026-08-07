@@ -196,7 +196,10 @@ export default function TripDetail({
         const fromName = parts[0];
         const toName = parts[1];
 
-        if (state.isSettled || (state.settledAmount && state.settledAmount > 0)) {
+        // Only adjust balances for CONFIRMED payments. A pending slip means money was
+        // transferred but the creditor hasn't confirmed yet, so the pair must stay in the
+        // list (as "รอยืนยัน") for the creditor to review the slip and confirm.
+        if (state.isSettled) {
           let paidVal = state.settledAmount || 0;
           if (paidVal === 0 && state.isSettled) {
             // Fallback: old record was settled but settledAmount wasn't set.
@@ -1226,7 +1229,7 @@ export default function TripDetail({
                   await fetch(`/api/trips/${trip.id}/settlements`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ settlement_key: key, status: 'pending', slip_url: slipUrl || null, settled_amount: s.amount }),
+                    body: JSON.stringify({ settlement_key: key, status: 'pending', slip_url: slipUrl || null, settled_amount: 0 }),
                   }).catch(() => {});
                   alert(`แนบสลิปจาก ${s.from} ไปยัง ${s.to} เรียบร้อย! รอให้ ${s.to} ยืนยันการรับเงิน`);
                   setActiveSettleIndex(null);
