@@ -198,9 +198,13 @@ export default function TripDetail({
         if (state.isSettled || (state.settledAmount && state.settledAmount > 0)) {
           let paidVal = state.settledAmount || 0;
           if (paidVal === 0 && state.isSettled) {
-            // Fallback: if old record was settled but settledAmount wasn't set, find original amount from rawSettlements or key
+            // Fallback: old record was settled but settledAmount wasn't set.
+            // Prefer the amount embedded in the settlement key (exact amount paid at that
+            // time) over the current recomputed raw settlement, which may have grown if
+            // new expenses were added after the payment was confirmed.
+            const keyAmount = parseFloat(parts[2]);
             const rawMatch = rawSettlements.find(r => r.from === fromName && r.to === toName);
-            paidVal = rawMatch ? rawMatch.amount : (parseFloat(parts[2]) || 0);
+            paidVal = Number.isFinite(keyAmount) && keyAmount > 0 ? keyAmount : (rawMatch ? rawMatch.amount : 0);
           }
           if (paidVal > 0) {
             if (fromName === m.name) netBalance += paidVal;
@@ -219,17 +223,26 @@ export default function TripDetail({
   const settlements = computedSettlements.map(s => {
     const key = `${s.from}-${s.to}`;
     let stateFound = settlementStates[key];
+    let matchedOldKey: string | undefined;
     if (!stateFound) {
       const oldKeys = Object.keys(settlementStates).filter(k => k.startsWith(`${s.from}-${s.to}-`));
       if (oldKeys.length > 0) {
-        stateFound = settlementStates[oldKeys[0]];
+        // Old-format keys embed the settled amount as the last segment. That amount has
+        // already been subtracted in Step 2, so it only settles this recomputed pair when
+        // the amounts match exactly; otherwise the pair is a new (still pending) balance.
+        const oldAmount = parseFloat(oldKeys[0].split('-').pop() || '');
+        if (Number.isFinite(oldAmount) && oldAmount === s.amount) {
+          stateFound = settlementStates[oldKeys[0]];
+          matchedOldKey = oldKeys[0];
+        }
       }
     }
 
     let alreadySettled = stateFound?.settledAmount || 0;
     if (alreadySettled === 0 && stateFound?.isSettled) {
+      const keyAmount = matchedOldKey ? parseFloat(matchedOldKey.split('-').pop() || '') : NaN;
       const rawMatch = rawSettlements.find(r => r.from === s.from && r.to === s.to);
-      alreadySettled = rawMatch ? rawMatch.amount : 0;
+      alreadySettled = Number.isFinite(keyAmount) && keyAmount > 0 ? keyAmount : (rawMatch ? rawMatch.amount : 0);
     }
 
     const isFullySettled = s.amount === 0;
