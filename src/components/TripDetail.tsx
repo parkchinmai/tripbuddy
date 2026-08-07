@@ -167,7 +167,15 @@ export default function TripDetail({
     let netBalance = m.netBalance;
     for (const s of rawSettlements) {
       const key = `${s.from}-${s.to}`;
-      const alreadySettled = settlementStates[key]?.settledAmount || 0;
+      let state = settlementStates[key];
+      if (!state) {
+        const oldKeys = Object.keys(settlementStates).filter(k => k.startsWith(`${s.from}-${s.to}-`));
+        if (oldKeys.length > 0) state = settlementStates[oldKeys[0]];
+      }
+      let alreadySettled = state?.settledAmount || 0;
+      if (alreadySettled === 0 && state?.isSettled) {
+        alreadySettled = s.amount;
+      }
       if (alreadySettled > 0) {
         if (s.from === m.name) netBalance += alreadySettled;
         if (s.to === m.name) netBalance -= alreadySettled;
@@ -183,14 +191,34 @@ export default function TripDetail({
   const settlements = computedSettlements.map(s => {
     const key = `${s.from}-${s.to}`;
     const state = settlementStates[key];
-    const alreadySettled = state?.settledAmount || 0;
-    // If debt still remains (s.amount > 0), then it's NOT fully settled even if previous status was confirmed!
-    const isFullySettled = s.amount === 0 && (state?.isSettled || false);
+    const rawMatch = rawSettlements.find(r => r.from === s.from && r.to === s.to);
+    const rawTotal = rawMatch ? rawMatch.amount : s.amount;
+    
+    // If state exists (from previous DB settlement using key `from-to` OR `from-to-oldamount`)
+    let stateFound = state;
+    if (!stateFound) {
+      // Fallback check if DB had old style key from-to-amount
+      const oldKeys = Object.keys(settlementStates).filter(k => k.startsWith(`${s.from}-${s.to}-`));
+      if (oldKeys.length > 0) {
+        stateFound = settlementStates[oldKeys[0]];
+      }
+    }
+
+    // Amount previously settled (if DB state was confirmed, but settledAmount was not explicitly saved, fallback to rawTotal - s.amount or rawTotal if s.amount == 0)
+    let alreadySettled = stateFound?.settledAmount || 0;
+    if (alreadySettled === 0 && stateFound?.isSettled) {
+      alreadySettled = Math.max(0, rawTotal - s.amount);
+      if (alreadySettled === 0 && rawTotal > 0) {
+        alreadySettled = rawTotal; // Was fully settled before new expense
+      }
+    }
+
+    const isFullySettled = s.amount === 0;
     return {
       ...s,
       isSettled: isFullySettled,
-      slipUrl: state?.slipUrl,
-      confirmedBy: state?.confirmedBy,
+      slipUrl: stateFound?.slipUrl,
+      confirmedBy: stateFound?.confirmedBy,
       settledAmount: alreadySettled,
     };
   });
