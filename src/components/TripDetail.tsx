@@ -165,6 +165,7 @@ export default function TripDetail({
 
   const [settlementStates, setSettlementStates] = useState<Record<string, SettlementState>>({});
   const [settlementsLoaded, setSettlementsLoaded] = useState(false);
+  const [showSettled, setShowSettled] = useState<boolean>(false);
 
   // Load settlement states from API
   useEffect(() => {
@@ -254,6 +255,26 @@ export default function TripDetail({
       settledAmount: alreadySettled,
     };
   });
+
+  // Members who fully cleared their debt (confirmed payment and net balance is now 0)
+  const settledPeople = (() => {
+    const list: { from: string; to: string; amount: number }[] = [];
+    Object.entries(settlementStates).forEach(([key, state]) => {
+      if (!state.isSettled) return;
+      const parts = key.split('-');
+      if (parts.length < 2) return;
+      const from = parts[0];
+      const to = parts[1];
+      const member = tripMembers.find(m => m.name === from);
+      if (!member || member.netBalance !== 0) return;
+      const keyAmount = parseFloat(parts[2]);
+      const amount = state.settledAmount > 0
+        ? state.settledAmount
+        : (Number.isFinite(keyAmount) && keyAmount > 0 ? keyAmount : 0);
+      if (amount > 0) list.push({ from, to, amount });
+    });
+    return list;
+  })();
 
   const [activeSettleIndex, setActiveSettleIndex] = useState<number | null>(null);
   const [settleSlipAttached, setSettleSlipAttached] = useState<boolean>(false);
@@ -616,6 +637,20 @@ export default function TripDetail({
             <span className="material-symbols-outlined text-secondary-orange text-[28px]">handshake</span>
           </div>
 
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowSettled(v => !v)}
+              className={`flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1.5 rounded-full border-2 transition-all cursor-pointer ${
+                showSettled
+                  ? 'bg-tertiary-green-light/30 border-tertiary-green text-tertiary-green'
+                  : 'bg-white border-slate-200 text-slate-400 hover:border-tertiary-green/40 hover:text-tertiary-green'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[14px] font-bold">{showSettled ? 'visibility_off' : 'visibility'}</span>
+              {showSettled ? 'ซ่อนคนที่จ่ายแล้ว' : 'แสดงคนที่จ่ายแล้ว'}
+            </button>
+          </div>
+
           <div className="space-y-4">
             {settlements.map((settlement, index) => (
               <div 
@@ -740,6 +775,44 @@ export default function TripDetail({
               </div>
             ))}
           </div>
+
+          {showSettled && settledPeople.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wide flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                คนที่จ่ายแล้ว ({settledPeople.length})
+              </p>
+              {settledPeople.map((p, idx) => (
+                <div
+                  key={idx}
+                  className="p-4 rounded-2xl border-2 border-tertiary-green-light bg-tertiary-green-light/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="relative shrink-0">
+                      <div className="w-12 h-12 rounded-full overflow-hidden border-2 bg-tertiary-green-light text-tertiary-green border-tertiary-green-light flex items-center justify-center font-extrabold">
+                        {p.from[0]}
+                      </div>
+                      <div className="absolute -right-1 -bottom-1 bg-white rounded-full p-1 border border-slate-100 shadow-sm flex items-center justify-center">
+                        <span className="material-symbols-outlined text-tertiary-green text-[14px] font-bold">arrow_forward</span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-base font-bold text-slate-600">
+                        {p.from} <span className="text-slate-400 font-normal">จ่ายคืนให้</span> {p.to}
+                      </p>
+                      <p className="text-[11px] text-tertiary-green font-bold mt-0.5 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                        จ่ายแล้ว
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-left sm:text-right self-stretch sm:self-auto flex sm:flex-col justify-between items-center sm:items-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-50">
+                    <p className="text-xl font-extrabold text-tertiary-green">฿{p.amount.toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="border-t border-slate-100 pt-6 space-y-4">
             <div className="flex items-center justify-between">
