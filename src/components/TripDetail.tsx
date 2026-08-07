@@ -189,7 +189,7 @@ export default function TripDetail({
   const tripMembers = baseTripMembers.map(m => {
     let netBalance = m.netBalance;
     // Check all recorded settlement states for this member
-    Object.entries(settlementStates).forEach(([key, state]) => {
+    (Object.entries(settlementStates) as [string, SettlementState][]).forEach(([key, state]) => {
       // key format can be "from-to" or "from-to-amount"
       const parts = key.split('-');
       if (parts.length >= 2) {
@@ -262,7 +262,7 @@ export default function TripDetail({
   // Members who fully cleared their debt (confirmed payment and net balance is now 0)
   const settledPeople = (() => {
     const list: { from: string; to: string; amount: number }[] = [];
-    Object.entries(settlementStates).forEach(([key, state]) => {
+    (Object.entries(settlementStates) as [string, SettlementState][]).forEach(([key, state]) => {
       if (!state.isSettled) return;
       const parts = key.split('-');
       if (parts.length < 2) return;
@@ -285,6 +285,34 @@ export default function TripDetail({
   const [settleSlipPreview, setSettleSlipPreview] = useState<string>('');
   const [settleSlipUploading, setSettleSlipUploading] = useState<boolean>(false);
   const [settleSlipFile, setSettleSlipFile] = useState<File | null>(null);
+
+  const cancelSettlementSlip = async (from: string, to: string, slipUrl: string) => {
+    if (!slipUrl) return;
+    if (!window.confirm('ยกเลิกสลิปนี้? สลิปจะถูกลบออกจากระบบ และสามารถแนบสลิปใหม่ได้')) return;
+
+    const imagePath = slipUrl.startsWith('/api/images/') ? slipUrl.slice('/api/images/'.length) : '';
+    if (imagePath) {
+      try {
+        const res = await fetch(`/api/images/${imagePath}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('delete failed');
+      } catch {
+        alert('ลบสลิปจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง');
+        return;
+      }
+    }
+
+    const targetKey = Object.keys(settlementStates).find(k => settlementStates[k]?.slipUrl === slipUrl);
+    const key = targetKey || `${from}-${to}`;
+    setSettlementStates(prev => ({
+      ...prev,
+      [key]: { ...prev[key], isSettled: false, slipUrl: undefined, settledAmount: 0 },
+    }));
+    await fetch(`/api/trips/${trip.id}/settlements`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settlement_key: key, status: 'pending', slip_url: null, settled_amount: 0 }),
+    }).catch(() => {});
+  };
   const [expandedMembers, setExpandedMembers] = useState<Record<string, boolean>>({});
 
   const toggleMemberExpand = (name: string) => {
@@ -723,6 +751,15 @@ export default function TripDetail({
                             <span className="material-symbols-outlined text-[12px]">image</span>
                             <span>ดูสลิป</span>
                           </button>
+                          {currentUserName === settlement.from && (
+                            <button
+                              onClick={() => cancelSettlementSlip(settlement.from, settlement.to, settlement.slipUrl!)}
+                              className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 hover:bg-rose-100 transition-colors cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[12px]">delete</span>
+                              <span>ยกเลิกสลิป</span>
+                            </button>
+                          )}
                           {currentUserName === settlement.to && (
                             <button
                               onClick={async () => {

@@ -391,6 +391,13 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
     return new Response(object.body, { headers });
   }
 
+  // DELETE /api/images/:key — remove an image from R2
+  if (request.method === 'DELETE' && path.startsWith('/api/images/')) {
+    const key = path.slice(12);
+    await env.TRIP_IMAGES.delete(key);
+    return json({ ok: true }, 200, cors);
+  }
+
   // ---- Settlements ----
   if (path.match(/^\/api\/trips\/[\w-]+\/settlements$/)) {
     // Ensure settlements table exists
