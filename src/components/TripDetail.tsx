@@ -851,7 +851,7 @@ export default function TripDetail({
                   };
                 });
 
-                const balance = member.totalPaid - member.totalShare;
+                const balance = member.netBalance;
 
                 return (
                   <div key={idx} className="border border-slate-150 rounded-2xl overflow-hidden transition-all duration-200 hover:border-slate-300 bg-slate-50/20">
@@ -865,7 +865,25 @@ export default function TripDetail({
                           <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
                         </div>
                         <div>
-                          <p className="text-sm font-extrabold text-slate-800">{member.name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-extrabold text-slate-800">{member.name}</p>
+                            {balance < 0 ? (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] bg-secondary-orange-light text-secondary-orange px-2 py-0.5 rounded-full font-black">
+                                <span className="material-symbols-outlined text-[10px] font-bold">schedule</span>
+                                ค้างจ่าย ฿{Math.round(Math.abs(balance)).toLocaleString()}
+                              </span>
+                            ) : balance > 0 ? (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] bg-primary-light text-primary px-2 py-0.5 rounded-full font-black">
+                                <span className="material-symbols-outlined text-[10px] font-bold">payments</span>
+                                รับคืน ฿{Math.round(balance).toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black">
+                                <span className="material-symbols-outlined text-[10px] font-bold">check_circle</span>
+                                จ่ายแล้ว
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
