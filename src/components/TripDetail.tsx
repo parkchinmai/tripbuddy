@@ -162,25 +162,30 @@ export default function TripDetail({
   const rawSettlements = calculateSettlements(baseTripMembers);
 
   // Step 2: adjust net balances by subtracting amounts already confirmed (settled)
-  // Use stable key `from-to` so it survives when new expenses change the amount
   const tripMembers = baseTripMembers.map(m => {
     let netBalance = m.netBalance;
-    for (const s of rawSettlements) {
-      const key = `${s.from}-${s.to}`;
-      let state = settlementStates[key];
-      if (!state) {
-        const oldKeys = Object.keys(settlementStates).filter(k => k.startsWith(`${s.from}-${s.to}-`));
-        if (oldKeys.length > 0) state = settlementStates[oldKeys[0]];
+    // Check all recorded settlement states for this member
+    Object.entries(settlementStates).forEach(([key, state]) => {
+      // key format can be "from-to" or "from-to-amount"
+      const parts = key.split('-');
+      if (parts.length >= 2) {
+        const fromName = parts[0];
+        const toName = parts[1];
+
+        if (state.isSettled || (state.settledAmount && state.settledAmount > 0)) {
+          let paidVal = state.settledAmount || 0;
+          if (paidVal === 0 && state.isSettled) {
+            // Fallback: if old record was settled but settledAmount wasn't set, find original amount from rawSettlements or key
+            const rawMatch = rawSettlements.find(r => r.from === fromName && r.to === toName);
+            paidVal = rawMatch ? rawMatch.amount : (parseFloat(parts[2]) || 0);
+          }
+          if (paidVal > 0) {
+            if (fromName === m.name) netBalance += paidVal;
+            if (toName === m.name) netBalance -= paidVal;
+          }
+        }
       }
-      let alreadySettled = state?.settledAmount || 0;
-      if (alreadySettled === 0 && state?.isSettled) {
-        alreadySettled = s.amount;
-      }
-      if (alreadySettled > 0) {
-        if (s.from === m.name) netBalance += alreadySettled;
-        if (s.to === m.name) netBalance -= alreadySettled;
-      }
-    }
+    });
     return { ...m, netBalance };
   });
 
@@ -190,27 +195,18 @@ export default function TripDetail({
   // Step 4: merge state into each settlement record
   const settlements = computedSettlements.map(s => {
     const key = `${s.from}-${s.to}`;
-    const state = settlementStates[key];
-    const rawMatch = rawSettlements.find(r => r.from === s.from && r.to === s.to);
-    const rawTotal = rawMatch ? rawMatch.amount : s.amount;
-    
-    // If state exists (from previous DB settlement using key `from-to` OR `from-to-oldamount`)
-    let stateFound = state;
+    let stateFound = settlementStates[key];
     if (!stateFound) {
-      // Fallback check if DB had old style key from-to-amount
       const oldKeys = Object.keys(settlementStates).filter(k => k.startsWith(`${s.from}-${s.to}-`));
       if (oldKeys.length > 0) {
         stateFound = settlementStates[oldKeys[0]];
       }
     }
 
-    // Amount previously settled (if DB state was confirmed, but settledAmount was not explicitly saved, fallback to rawTotal - s.amount or rawTotal if s.amount == 0)
     let alreadySettled = stateFound?.settledAmount || 0;
     if (alreadySettled === 0 && stateFound?.isSettled) {
-      alreadySettled = Math.max(0, rawTotal - s.amount);
-      if (alreadySettled === 0 && rawTotal > 0) {
-        alreadySettled = rawTotal; // Was fully settled before new expense
-      }
+      const rawMatch = rawSettlements.find(r => r.from === s.from && r.to === s.to);
+      alreadySettled = rawMatch ? rawMatch.amount : 0;
     }
 
     const isFullySettled = s.amount === 0;

@@ -225,7 +225,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
     const body = await request.json();
     const id = body.id || `e-${Date.now()}`;
     const paidBy = body.paidById || body.paidBy || '';
-    const splitWith = body.splitWithIds || body.splitWith || [];
+    const splitWith = (body.splitWithIds && body.splitWithIds.length > 0) ? body.splitWithIds : (body.splitWith || []);
     try {
       await db.prepare(
         `INSERT INTO expenses (id, trip_id, title, amount, category, date, paid_by, split_with, custom_shares, slip_url, mode, split_items, fee_mode, fee_order, created_at)
