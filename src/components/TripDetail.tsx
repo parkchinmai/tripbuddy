@@ -184,10 +184,11 @@ export default function TripDetail({
     const key = `${s.from}-${s.to}`;
     const state = settlementStates[key];
     const alreadySettled = state?.settledAmount || 0;
-    // If there was a prior settled amount, show it alongside current remaining amount
+    // If debt still remains (s.amount > 0), then it's NOT fully settled even if previous status was confirmed!
+    const isFullySettled = s.amount === 0 && (state?.isSettled || false);
     return {
       ...s,
-      isSettled: state?.isSettled || false,
+      isSettled: isFullySettled,
       slipUrl: state?.slipUrl,
       confirmedBy: state?.confirmedBy,
       settledAmount: alreadySettled,
