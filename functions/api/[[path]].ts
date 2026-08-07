@@ -488,10 +488,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
     const id = parts[3];
     const noteId = parts[5];
     const viewer = await getUserByPhone(db, url.searchParams.get('user'));
-    if (!viewer) {
-      const directLookup = await db.prepare('SELECT id, is_admin FROM profiles WHERE phone = ?').bind(url.searchParams.get('user') || '').first().catch(() => 'THREW');
-      return json({ error: 'ไม่ได้รับสิทธิ์', debug: { user: url.searchParams.get('user'), directLookup, noteId, path } }, 401, cors);
-    }
+    if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์' }, 401, cors);
     const profile = await db.prepare('SELECT name FROM profiles WHERE id = ?').bind(viewer.id).first();
     const note = await db.prepare('SELECT * FROM notes WHERE id = ? AND trip_id = ?').bind(noteId, id).first();
     if (!note) return json({ error: 'ไม่พบโน้ต' }, 404, cors);
