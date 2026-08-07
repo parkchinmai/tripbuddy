@@ -398,6 +398,145 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
     return json({ ok: true }, 200, cors);
   }
 
+  // ---- Notes (trip noticeboard) ----
+  const ensureNoteTables = async () => {
+    await db.prepare(
+      `CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY,
+        trip_id TEXT NOT NULL,
+        author_name TEXT NOT NULL,
+        text TEXT,
+        images TEXT,
+        created_at TEXT DEFAULT (datetime('now', '+7 hours'))
+      )`
+    ).run();
+    await db.prepare(
+      `CREATE TABLE IF NOT EXISTS note_reactions (
+        note_id TEXT NOT NULL,
+        member_name TEXT NOT NULL,
+        reaction TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now', '+7 hours')),
+        PRIMARY KEY (note_id, member_name)
+      )`
+    ).run();
+  };
+
+  const loadNoteReactions = async (noteIds: string[]) => {
+    const map: Record<string, Record<string, string[]>> = {};
+    if (noteIds.length === 0) return map;
+    const placeholders = noteIds.map(() => '?').join(',');
+    const { results } = await db.prepare(
+      `SELECT * FROM note_reactions WHERE note_id IN (${placeholders})`
+    ).bind(...noteIds).all();
+    for (const r of (results as any[])) {
+      if (!map[r.note_id]) map[r.note_id] = {};
+      if (!map[r.note_id][r.reaction]) map[r.note_id][r.reaction] = [];
+      map[r.note_id][r.reaction].push(r.member_name);
+    }
+    return map;
+  };
+
+  // GET /api/trips/:id/notes
+  if (request.method === 'GET' && path.match(/^\/api\/trips\/[\w-]+\/notes$/)) {
+    const id = path.split('/')[3];
+    const viewer = await getUserByPhone(db, url.searchParams.get('user'));
+    const isAdmin = viewer ? viewer.is_admin === 1 : false;
+    if (!isAdmin) {
+      if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์เข้าถึงทริปนี้' }, 403, cors);
+      const memberCheck = await db.prepare(
+        'SELECT 1 FROM trip_members WHERE trip_id = ? AND member_id = ?'
+      ).bind(id, viewer.id).first();
+      if (!memberCheck) return json({ error: 'ไม่ได้รับสิทธิ์เข้าถึงทริปนี้' }, 403, cors);
+    }
+    await ensureNoteTables();
+    const { results: notes } = await db.prepare(
+      'SELECT * FROM notes WHERE trip_id = ? ORDER BY created_at DESC, id DESC'
+    ).bind(id).all();
+    const reactionMap = await loadNoteReactions((notes as any[]).map(n => n.id));
+    const enriched = (notes as any[]).map(n => ({
+      ...n,
+      text: n.text || '',
+      images: n.images ? (JSON.parse(n.images) as string[]) : [],
+      reactions: reactionMap[n.id] || {},
+    }));
+    return json(enriched, 200, cors);
+  }
+
+  // POST /api/trips/:id/notes
+  if (request.method === 'POST' && path.match(/^\/api\/trips\/[\w-]+\/notes$/)) {
+    const id = path.split('/')[3];
+    const viewer = await getUserByPhone(db, url.searchParams.get('user'));
+    if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์' }, 401, cors);
+    const profile = await db.prepare('SELECT name FROM profiles WHERE id = ?').bind(viewer.id).first();
+    if (!profile) return json({ error: 'ไม่พบผู้ใช้' }, 401, cors);
+    const body = await request.json();
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    const images = Array.isArray(body.images) ? (body.images as string[]).filter((s: string) => typeof s === 'string') : [];
+    if (!text && images.length === 0) return json({ error: 'กรุณาพิมพ์ข้อความหรือแนบรูปภาพ' }, 400, cors);
+    await ensureNoteTables();
+    const noteId = `n-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await db.prepare(
+      `INSERT INTO notes (id, trip_id, author_name, text, images, created_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now', '+7 hours'))`
+    ).bind(noteId, id, (profile as any).name, text, images.length ? JSON.stringify(images) : null).run();
+    return json({ id: noteId }, 201, cors);
+  }
+
+  // DELETE /api/trips/:id/notes/:noteId
+  if (request.method === 'DELETE' && path.match(/^\/api\/trips\/[\w-]+\/notes\/[\w-]+$/)) {
+    const parts = path.split('/');
+    const id = parts[3];
+    const noteId = parts[5];
+    const viewer = await getUserByPhone(db, url.searchParams.get('user'));
+    if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์' }, 401, cors);
+    const profile = await db.prepare('SELECT name FROM profiles WHERE id = ?').bind(viewer.id).first();
+    const note = await db.prepare('SELECT * FROM notes WHERE id = ? AND trip_id = ?').bind(noteId, id).first();
+    if (!note) return json({ error: 'ไม่พบโน้ต' }, 404, cors);
+    if (viewer.is_admin !== 1 && (!profile || note.author_name !== profile.name)) {
+      return json({ error: 'ไม่ได้รับสิทธิ์ลบโน้ตนี้' }, 403, cors);
+    }
+    try {
+      const images: string[] = note.images ? JSON.parse(note.images) : [];
+      for (const img of images) {
+        const m = String(img).match(/\/api\/images\/(.+)$/);
+        if (m && env.TRIP_IMAGES) await env.TRIP_IMAGES.delete(m[1]).catch(() => {});
+      }
+    } catch {}
+    await db.prepare('DELETE FROM note_reactions WHERE note_id = ?').bind(noteId).run();
+    await db.prepare('DELETE FROM notes WHERE id = ?').bind(noteId).run();
+    return json({ ok: true }, 200, cors);
+  }
+
+  // POST /api/notes/:noteId/reactions  — toggle reaction for current member
+  if (request.method === 'POST' && path.match(/^\/api\/notes\/[\w-]+\/reactions$/)) {
+    const noteId = path.split('/')[3];
+    const viewer = await getUserByPhone(db, url.searchParams.get('user'));
+    if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์' }, 401, cors);
+    const profile = await db.prepare('SELECT name FROM profiles WHERE id = ?').bind(viewer.id).first();
+    if (!profile) return json({ error: 'ไม่พบผู้ใช้' }, 401, cors);
+    const memberName = (profile as any).name;
+    const body = await request.json();
+    const reaction = String(body.reaction || '');
+    if (!reaction) return json({ error: 'reaction is required' }, 400, cors);
+    await ensureNoteTables();
+    const note = await db.prepare('SELECT id FROM notes WHERE id = ?').bind(noteId).first();
+    if (!note) return json({ error: 'ไม่พบโน้ต' }, 404, cors);
+    const existing = await db.prepare(
+      'SELECT reaction FROM note_reactions WHERE note_id = ? AND member_name = ?'
+    ).bind(noteId, memberName).first();
+    if (existing) {
+      if ((existing as any).reaction === reaction) {
+        await db.prepare('DELETE FROM note_reactions WHERE note_id = ? AND member_name = ?').bind(noteId, memberName).run();
+      } else {
+        await db.prepare('UPDATE note_reactions SET reaction = ? WHERE note_id = ? AND member_name = ?').bind(reaction, noteId, memberName).run();
+      }
+    } else {
+      await db.prepare('INSERT INTO note_reactions (note_id, member_name, reaction) VALUES (?, ?, ?)').bind(noteId, memberName, reaction).run();
+    }
+    const reactionMap = await loadNoteReactions([noteId]);
+    return json({ reactions: reactionMap[noteId] || {}, me: memberName }, 200, cors);
+  }
+
   // ---- Settlements ----
   if (path.match(/^\/api\/trips\/[\w-]+\/settlements$/)) {
     // Ensure settlements table exists

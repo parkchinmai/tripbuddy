@@ -451,6 +451,7 @@ export default function App() {
           onUpdateTripMembers={(memberIds) => handleUpdateTripMembers(currentTrip.id, memberIds)}
           onDeleteTrip={() => handleDeleteTrip(currentTrip.id)}
           currentUserName={profile.name}
+          currentUserPhone={profile.phone}
         />
       );
     }

@@ -9,6 +9,7 @@ import { formatDateRange, calculateSettlements, extractAccountNumber, getFallbac
 import { uploadImage } from '../lib/r2';
 import CopyBtn from './CopyBtn';
 import ImagePositionPicker, { parsePosition, positionToCss } from './ImagePositionPicker';
+import NotesTab from './NotesTab';
 
 export interface SettlementState {
   isSettled: boolean;
@@ -27,9 +28,10 @@ interface TripDetailProps {
   onUpdateTripMembers: (memberIds: string[]) => void;
   onDeleteTrip: () => void;
   currentUserName?: string;
+  currentUserPhone?: string;
 }
 
-type TabType = 'overview' | 'expenses' | 'settlement' | 'companions';
+type TabType = 'overview' | 'expenses' | 'settlement' | 'companions' | 'notes';
 
 const getTripMembers = (trip: Trip, memberProfiles: any[] = []) => {
   const namesSet = new Set<string>();
@@ -115,7 +117,8 @@ export default function TripDetail({
   onUpdateTrip,
   onUpdateTripMembers,
   onDeleteTrip,
-  currentUserName
+  currentUserName,
+  currentUserPhone
 }: TripDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedSlip, setSelectedSlip] = useState<string | null>(null);
@@ -425,6 +428,7 @@ export default function TripDetail({
           { tab: 'expenses' as const, label: 'ค่าใช้จ่าย' },
           { tab: 'settlement' as const, label: 'สรุปยอด' },
           { tab: 'companions' as const, label: 'เพื่อนร่วมทริป' },
+          { tab: 'notes' as const, label: 'โน้ต' },
         ].map(item => (
           <button 
             key={item.tab}
@@ -1082,6 +1086,18 @@ export default function TripDetail({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT: Notes */}
+      {activeTab === 'notes' && (
+        <div className="animate-fade-in">
+          <NotesTab
+            tripId={trip.id}
+            currentUserName={currentUserName || ''}
+            currentUserPhone={currentUserPhone || ''}
+            memberProfiles={memberProfiles}
+          />
         </div>
       )}
 
