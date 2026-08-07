@@ -1,0 +1,21 @@
+{
+  "routes": [
+    {
+      "routePath": "/api/:path*",
+      "mountPath": "/api",
+      "method": "",
+      "module": [
+        "api/[[path]].ts:onRequest"
+      ]
+    },
+    {
+      "routePath": "/upload",
+      "mountPath": "/",
+      "method": "",
+      "module": [
+        "upload.ts:onRequest"
+      ]
+    }
+  ],
+  "baseURL": "/"
+}

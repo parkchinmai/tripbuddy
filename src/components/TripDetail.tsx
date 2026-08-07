@@ -34,14 +34,33 @@ type TabType = 'overview' | 'expenses' | 'settlement' | 'companions';
 const getTripMembers = (trip: Trip, memberProfiles: any[] = []) => {
   const namesSet = new Set<string>();
   const profileByName: Record<string, any> = {};
+  const profileById: Record<string, any> = {};
   for (const p of memberProfiles) {
     profileByName[p.name] = p;
+    if (p.id) profileById[p.id] = p;
   }
 
   trip.expenses.forEach(e => {
-    if (e.paidBy) namesSet.add(e.paidBy);
+    // Resolve payer name if paidBy is ID
+    let pName = e.paidBy;
+    if (e.paidById && profileById[e.paidById]) {
+      pName = profileById[e.paidById].name;
+    } else if (profileById[e.paidBy]) {
+      pName = profileById[e.paidBy].name;
+    }
+    if (pName) namesSet.add(pName);
+
     if (e.splitWith) {
-      e.splitWith.forEach(name => namesSet.add(name));
+      e.splitWith.forEach((name, idx) => {
+        let sName = name;
+        const sId = e.splitWithIds?.[idx];
+        if (sId && profileById[sId]) {
+          sName = profileById[sId].name;
+        } else if (profileById[name]) {
+          sName = profileById[name].name;
+        }
+        if (sName) namesSet.add(sName);
+      });
     }
   });
 
@@ -50,20 +69,24 @@ const getTripMembers = (trip: Trip, memberProfiles: any[] = []) => {
 
   return Array.from(namesSet).map((name) => {
     const profile = profileByName[name];
+    const memberId = profile?.id;
     const avatarUrl = profile?.avatar_url || getFallbackAvatar(name);
     const bankAccount = profile?.bank_account || 'ยังไม่ได้ระบุ';
     const phone = profile?.phone || '08X-XXX-XXXX';
 
     const totalPaid = trip.expenses
-      .filter(e => e.paidBy === name)
+      .filter(e => e.paidBy === name || e.paidBy === memberId || e.paidById === memberId)
       .reduce((sum, e) => sum + e.amount, 0);
 
     const totalShare = trip.expenses
-      .filter(e => e.splitWith.includes(name))
+      .filter(e => {
+        if (e.splitWith.includes(name)) return true;
+        if (memberId && e.splitWithIds?.includes(memberId)) return true;
+        return false;
+      })
       .reduce((sum, e) => {
         if (e.customShares) {
-          const id = profileByName[name]?.id;
-          if (id && e.customShares[id] !== undefined) return sum + e.customShares[id];
+          if (memberId && e.customShares[memberId] !== undefined) return sum + e.customShares[memberId];
           if (e.customShares[name] !== undefined) return sum + e.customShares[name];
         }
         const shareCount = e.splitWith.length || 1;
@@ -72,7 +95,7 @@ const getTripMembers = (trip: Trip, memberProfiles: any[] = []) => {
 
     return {
       name,
-      id: profile?.id,
+      id: memberId,
       avatarUrl,
       bankAccount,
       phone,
