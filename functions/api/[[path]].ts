@@ -437,7 +437,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
   };
 
   // GET /api/trips/:id/notes
-  if (request.method === 'GET' && path.match(/^\/api\/trips\/[\w-]+\/notes$/)) {
+  if (request.method === 'GET' && path.match(/^\/api\/trips\/[^/]+\/notes$/)) {
     const id = path.split('/')[3];
     const viewer = await getUserByPhone(db, url.searchParams.get('user'));
     const isAdmin = viewer ? viewer.is_admin === 1 : false;
@@ -463,7 +463,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
   }
 
   // POST /api/trips/:id/notes
-  if (request.method === 'POST' && path.match(/^\/api\/trips\/[\w-]+\/notes$/)) {
+  if (request.method === 'POST' && path.match(/^\/api\/trips\/[^/]+\/notes$/)) {
     const id = path.split('/')[3];
     const viewer = await getUserByPhone(db, url.searchParams.get('user'));
     if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์' }, 401, cors);
@@ -483,7 +483,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
   }
 
   // DELETE /api/trips/:id/notes/:noteId
-  if (request.method === 'DELETE' && path.match(/^\/api\/trips\/[\w-]+\/notes\/[\w-]+$/)) {
+  if (request.method === 'DELETE' && path.match(/^\/api\/trips\/[^/]+\/notes\/[^/]+$/)) {
     const parts = path.split('/');
     const id = parts[3];
     const noteId = parts[5];
@@ -508,7 +508,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
   }
 
   // POST /api/notes/:noteId/reactions  — toggle reaction for current member
-  if (request.method === 'POST' && path.match(/^\/api\/notes\/[\w-]+\/reactions$/)) {
+  if (request.method === 'POST' && path.match(/^\/api\/notes\/[^/]+\/reactions$/)) {
     const noteId = path.split('/')[3];
     const viewer = await getUserByPhone(db, url.searchParams.get('user'));
     if (!viewer) return json({ error: 'ไม่ได้รับสิทธิ์' }, 401, cors);
