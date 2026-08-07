@@ -12,11 +12,28 @@ interface TripsListProps {
   onSelectTrip: (tripId: string) => void;
   onCreateNewTrip: () => void;
   isAdmin?: boolean;
+  isPendingApproval?: boolean;
+  onCheckApprovalStatus?: () => Promise<boolean>;
 }
 
-export default function TripsList({ trips, onSelectTrip, onCreateNewTrip, isAdmin = false }: TripsListProps) {
+export default function TripsList({ trips, onSelectTrip, onCreateNewTrip, isAdmin = false, isPendingApproval = false, onCheckApprovalStatus }: TripsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'upcoming' | 'past'>('all');
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [checkResult, setCheckResult] = useState<'pending' | 'ok' | 'error' | null>(null);
+
+  const handleCheckStatus = async () => {
+    if (!onCheckApprovalStatus) return;
+    setCheckingStatus(true);
+    setCheckResult(null);
+    try {
+      const approved = await onCheckApprovalStatus();
+      setCheckResult(approved ? 'ok' : 'pending');
+    } catch {
+      setCheckResult('error');
+    }
+    setCheckingStatus(false);
+  };
 
   const allTrips = trips.filter(t => {
     const matchSearch = searchQuery === '' || 
@@ -47,6 +64,44 @@ export default function TripsList({ trips, onSelectTrip, onCreateNewTrip, isAdmi
           </button>
         )}
       </header>
+
+      {/* Pending Admin Approval Banner */}
+      {isPendingApproval && (
+        <div className="bg-secondary-orange-light/60 border-2 border-secondary-orange/20 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 animate-fade-in">
+          <div className="w-14 h-14 rounded-full bg-secondary-orange/15 text-secondary-orange flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[30px]">hourglass_top</span>
+          </div>
+          <div className="flex-1 space-y-1">
+            <h2 className="text-base sm:text-lg font-extrabold text-secondary-orange flex items-center gap-2">
+              บัญชีของคุณกำลังรอการอนุมัติจากแอดมิน
+            </h2>
+            <p className="text-xs sm:text-sm font-semibold text-slate-600 leading-relaxed">
+              คุณจะเห็นทริปและบันทึกค่าใช้จ่ายได้ทันทีเมื่อแอดมินอนุมัติบัญชีของคุณแล้ว ระบบจะตรวจสอบสถานะให้อัตโนมัติทุก ๆ 10 วินาที
+            </p>
+            {checkResult === 'ok' && (
+              <p className="text-xs font-bold text-tertiary-green flex items-center gap-1">
+                <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                อนุมัติแล้ว! กำลังโหลดทริปของคุณ...
+              </p>
+            )}
+            {checkResult === 'pending' && (
+              <p className="text-xs font-bold text-secondary-orange flex items-center gap-1">
+                <span className="material-symbols-outlined text-[14px]">schedule</span>
+                ยังไม่ได้รับการอนุมัติ กรุณารอสักครู่ แล้วลองตรวจสอบอีกครั้ง
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleCheckStatus}
+            disabled={checkingStatus}
+            className="shrink-0 bg-secondary-orange hover:bg-secondary-orange-hover disabled:opacity-60 text-white px-5 py-2.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[16px]">refresh</span>
+            <span>{checkingStatus ? 'กำลังตรวจสอบ...' : 'ตรวจสอบสถานะ'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Search and Filter */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -83,9 +138,13 @@ export default function TripsList({ trips, onSelectTrip, onCreateNewTrip, isAdmi
       {/* Empty State */}
       {activeTrips.length === 0 && pastTrips.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <span className="material-symbols-outlined text-slate-300 text-[64px] mb-4">search_off</span>
-          <p className="text-lg font-bold text-slate-500">ไม่พบทริปที่ตรงกับเงื่อนไขการค้นหา</p>
-          <p className="text-sm text-slate-400 mt-1">ลองเปลี่ยนคำค้นหาหรือตัวกรองสถานะ</p>
+          <span className="material-symbols-outlined text-slate-300 text-[64px] mb-4">{isPendingApproval ? 'hourglass_top' : 'search_off'}</span>
+          <p className="text-lg font-bold text-slate-500">
+            {isPendingApproval ? 'ยังไม่มีทริปในบัญชีของคุณ' : 'ไม่พบทริปที่ตรงกับเงื่อนไขการค้นหา'}
+          </p>
+          <p className="text-sm text-slate-400 mt-1">
+            {isPendingApproval ? 'ทริปจะแสดงที่นี่เมื่อแอดมินอนุมัติบัญชีของคุณแล้ว' : 'ลองเปลี่ยนคำค้นหาหรือตัวกรองสถานะ'}
+          </p>
         </div>
       )}
 
@@ -112,6 +171,7 @@ export default function TripsList({ trips, onSelectTrip, onCreateNewTrip, isAdmi
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
                   alt={trip.title} 
                   src={trip.coverImgUrl}
+                  style={{ objectPosition: trip.coverPosition || '50% 50%' }}
                 />
                 <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3.5 py-1.5 rounded-full text-xs font-bold text-primary flex items-center gap-1.5 shadow-sm">
                   <span className={`w-2 h-2 rounded-full ${trip.status === 'active' ? 'bg-tertiary-green animate-pulse' : 'bg-secondary-orange'}`}></span>
@@ -176,6 +236,7 @@ export default function TripsList({ trips, onSelectTrip, onCreateNewTrip, isAdmi
                   className="w-full h-full object-cover" 
                   alt={trip.title} 
                   src={trip.coverImgUrl}
+                  style={{ objectPosition: trip.coverPosition || '50% 50%' }}
                 />
               </div>
               <div className="p-4 flex flex-col justify-between flex-grow">

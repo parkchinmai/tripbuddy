@@ -34,7 +34,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       alert('กรุณากรอกเบอร์โทรศัพท์ให้ครบ 10 หลัก');
       return;
     }
-    onLoginSuccess(formatPhoneNumber(phone));
+    onLoginSuccess(phone);
   };
 
   return (

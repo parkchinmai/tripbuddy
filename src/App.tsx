@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, Trip, Expense } from './types';
-import { initialTrips, defaultProfile, HOTLINKS, deriveTripStatus } from './data';
+import { initialTrips, defaultProfile, deriveTripStatus, getFallbackAvatar } from './data';
 import Login from './components/Login';
 import Onboarding from './components/Onboarding';
 import TripsList from './components/TripsList';
@@ -16,28 +16,94 @@ import AdminDashboard from './components/AdminDashboard';
 import AddExpenseModal from './components/AddExpenseModal';
 import SuitcaseLogo from './components/SuitcaseLogo';
 import WelcomeBack from './components/WelcomeBack';
+import InstallButton from './components/InstallButton';
+import PwaBanner from './components/PwaBanner';
 
 type UserSessionState = 'not-logged-in' | 'onboarding' | 'welcome-back' | 'logged-in';
 type ActiveTabType = 'dashboard' | 'database' | 'profile' | 'admin';
 
+function loadSession<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+
 export default function App() {
-  const [sessionState, setSessionState] = useState<UserSessionState>('not-logged-in');
-  const [phoneNumber, setPhoneNumber] = useState<string>('');
-  const [profile, setProfile] = useState<UserProfile>(defaultProfile);
+  const [sessionState, setSessionState] = useState<UserSessionState>(() => loadSession('tb_sessionState', 'not-logged-in'));
+  const [phoneNumber, setPhoneNumber] = useState<string>(() => loadSession('tb_phone', ''));
+  const [profile, setProfile] = useState<UserProfile>(() => loadSession('tb_profile', defaultProfile));
   const [trips, setTrips] = useState<Trip[]>(initialTrips);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTabType>('dashboard');
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState<boolean>(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [memberProfilesLookup, setMemberProfilesLookup] = useState<Record<string, { name: string; avatarUrl: string }[]>>({});
+
+  // Persist session to localStorage on change
+  useEffect(() => {
+    localStorage.setItem('tb_sessionState', JSON.stringify(sessionState));
+    localStorage.setItem('tb_phone', JSON.stringify(phoneNumber));
+    localStorage.setItem('tb_profile', JSON.stringify(profile));
+  }, [sessionState, phoneNumber, profile]);
+
+  // Refresh profile from API on mount to pick up latest avatar/name from DB (avoids stale localStorage cache)
+  useEffect(() => {
+    if (!phoneNumber) return;
+    if (sessionState !== 'logged-in' && sessionState !== 'welcome-back') return;
+    let cancelled = false;
+    fetch(`/api/profile/${encodeURIComponent(phoneNumber)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(api => {
+        if (!api || cancelled) return;
+        setProfile(prev => ({
+          ...prev,
+          name: api.name ?? prev.name,
+          avatarUrl: api.avatar_url || prev.avatarUrl,
+          bankAccount: api.bank_account || prev.bankAccount,
+        }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [phoneNumber, sessionState]);
+
+  // Fetch trips from API on mount and after login
+  useEffect(() => {
+    if (sessionState === 'logged-in' || sessionState === 'welcome-back') {
+      fetch(`/api/trips?user=${encodeURIComponent(phoneNumber)}`)
+        .then(r => { if (r.ok) return r.json(); throw new Error(); })
+        .then(data => {
+          const list = Array.isArray(data) ? data : (data.results || []);
+          setTrips(list.map((t: any) => ({
+            id: t.id,
+            title: t.title,
+            destination: t.destination,
+            country: t.country || '',
+            dates: t.dates,
+            budget: t.budget,
+            expenses: [],
+            coverImgUrl: t.cover_img_url || '',
+            coverPosition: t.cover_position || undefined,
+            description: t.description || undefined,
+            status: deriveTripStatus(t.dates),
+            memberCount: t.member_count || 0,
+            memberIds: t.member_ids ? (typeof t.member_ids === 'string' ? JSON.parse(t.member_ids) : t.member_ids) : undefined,
+            memberNames: t.member_names || [],
+            budgetPerPerson: t.budget_per_person || undefined,
+          })));
+        })
+        .catch(() => {});
+    }
+  }, [sessionState, phoneNumber, profile.status]);
 
   // Handle Login Step 1
   const handleLoginSuccess = async (phone: string) => {
     setPhoneNumber(phone);
     
-    // Check if there is an existing profile saved for this phone number
     const savedProfile = localStorage.getItem(`user_profile_${phone}`);
 
-    // Also check API for admin status
-    let apiProfile: Partial<UserProfile> | null = null;
+    // Check API for profile + admin status
+    let apiProfile: any = null;
     try {
       const res = await fetch(`/api/profile/${encodeURIComponent(phone)}`);
       if (res.ok) {
@@ -45,41 +111,183 @@ export default function App() {
       }
     } catch {}
 
-    if (phone === '081-234-5678') {
-      // For the default demo profile
-      setProfile({ ...defaultProfile, isAdmin: apiProfile?.isAdmin ?? defaultProfile.isAdmin });
-      setSessionState('welcome-back');
-    } else if (savedProfile) {
+    const apiIsAdmin = apiProfile ? (apiProfile.is_admin === 1 || apiProfile.isAdmin === true) : false;
+
+    // User exists but not yet approved by admin -> enter app with pending-approval status
+    if (apiProfile && !apiIsAdmin && apiProfile.status && apiProfile.status !== 'approved') {
+      setProfile({
+        name: apiProfile.name || '',
+        phone: apiProfile.phone || phone,
+        bankAccount: apiProfile.bank_account || '',
+        avatarUrl: apiProfile.avatar_url || '',
+        isAdmin: false,
+        status: apiProfile.status || 'pending',
+      });
+      setSessionState('logged-in');
+      setActiveTab('dashboard');
+      setSelectedTripId(null);
+      return;
+    }
+
+    // Build profile from localStorage or API
+    if (savedProfile) {
       try {
         const parsed = JSON.parse(savedProfile) as UserProfile;
-        setProfile({ ...parsed, isAdmin: apiProfile?.isAdmin ?? parsed.isAdmin });
+        // Merge with API data to get latest avatar from database
+        const merged = {
+          ...parsed,
+          avatarUrl: apiProfile?.avatar_url || parsed.avatarUrl,
+          isAdmin: apiIsAdmin || parsed.isAdmin,
+        };
+        setProfile(merged);
+        localStorage.setItem(`user_profile_${phone}`, JSON.stringify(merged));
         setSessionState('welcome-back');
-      } catch (e) {
-        setSessionState('onboarding');
-      }
-    } else {
-      setSessionState('onboarding');
+        return;
+      } catch {}
     }
+
+    if (apiProfile && apiProfile.name) {
+      setProfile({
+        name: apiProfile.name,
+        phone: apiProfile.phone,
+        bankAccount: apiProfile.bank_account || '',
+        avatarUrl: apiProfile.avatar_url || '',
+        isAdmin: apiIsAdmin
+      });
+      setSessionState('welcome-back');
+      return;
+    }
+
+    setSessionState('onboarding');
   };
 
   // Handle Onboarding Step 2
-  const handleOnboardingComplete = (data: { name: string; avatarUrl: string; bankAccount: string }) => {
+  const handleOnboardingComplete = async (data: { name: string; avatarUrl: string; bankAccount: string }) => {
+    let isAdmin = false;
+    try {
+      const res = await fetch(`/api/profile/${encodeURIComponent(phoneNumber)}`);
+      if (res.ok) {
+        const apiProfile = await res.json();
+        isAdmin = apiProfile.is_admin === 1 || apiProfile.isAdmin === true;
+      }
+    } catch {}
+
     const newProfile: UserProfile = {
       name: data.name,
       phone: phoneNumber,
       bankAccount: data.bankAccount,
       avatarUrl: data.avatarUrl,
-      isAdmin: false // user can toggle admin manually in the UI
+      isAdmin,
+      status: isAdmin ? 'approved' : 'pending',
     };
     setProfile(newProfile);
     localStorage.setItem(`user_profile_${phoneNumber}`, JSON.stringify(newProfile));
+    // Save profile to API
+    try {
+      await fetch(`/api/profile/${encodeURIComponent(phoneNumber)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: data.name, bankAccount: data.bankAccount, avatarUrl: data.avatarUrl }),
+      });
+    } catch {}
+
+    // Create member record
+    try {
+      await fetch('/api/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: data.name,
+          phone: phoneNumber,
+          avatarUrl: data.avatarUrl,
+          bankAccount: data.bankAccount,
+          status: isAdmin ? 'approved' : 'pending',
+          accessLevel: isAdmin ? 'admin' : 'user',
+        }),
+      });
+    } catch {}
+
     setSessionState('logged-in');
     setActiveTab('dashboard');
+    setSelectedTripId(null);
   };
+
+  // Check if the current user's profile has been approved by admin yet
+  const handleCheckApprovalStatus = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/profile/${encodeURIComponent(phoneNumber)}`);
+      if (!res.ok) return false;
+      const p = await res.json();
+      const approved = p.is_admin === 1 || p.status === 'approved';
+      if (approved) {
+        const updated = {
+          ...profile,
+          name: p.name || profile.name,
+          avatarUrl: p.avatar_url || profile.avatarUrl,
+          isAdmin: p.is_admin === 1,
+          status: 'approved' as const,
+        };
+        setProfile(updated);
+        localStorage.setItem(`user_profile_${phoneNumber}`, JSON.stringify(updated));
+        setActiveTab('dashboard');
+      }
+      return approved;
+    } catch {
+      return false;
+    }
+  };
+
+  // Auto-poll approval status while the user is waiting for admin approval
+  useEffect(() => {
+    if (sessionState !== 'logged-in' || !phoneNumber) return;
+    if (profile.status !== 'pending') return;
+    const id = setInterval(() => {
+      handleCheckApprovalStatus();
+    }, 10000);
+    return () => clearInterval(id);
+  }, [sessionState, phoneNumber, profile.status]);
 
   // Switch between trips or go back
   const handleSelectTrip = (tripId: string) => {
     setSelectedTripId(tripId);
+    // Fetch full trip details with expenses & members
+    fetch(`/api/trips/${tripId}?user=${encodeURIComponent(phoneNumber)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        setTrips(prev => prev.map(t => {
+          if (t.id !== tripId) return t;
+          return {
+            ...t,
+            expenses: Array.isArray(data.expenses) ? data.expenses.map((e: any) => ({
+              id: e.id,
+              title: e.title,
+              amount: e.amount,
+              category: e.category || 'Other',
+              date: e.date,
+              paidBy: e.paid_by,
+              paidById: e.paid_by_id || undefined,
+              splitWith: e.split_with_names || (e.split_with ? JSON.parse(e.split_with) : []),
+              splitWithIds: e.split_with_ids ? JSON.parse(e.split_with_ids) : undefined,
+              customShares: e.custom_shares ? JSON.parse(e.custom_shares) : undefined,
+              slipUrl: e.slip_url || undefined,
+              mode: e.mode || undefined,
+              splitItems: e.split_items ? JSON.parse(e.split_items) : undefined,
+              feeMode: e.fee_mode || undefined,
+              feeOrder: e.fee_order || undefined,
+            })) : [],
+            memberCount: data.member_count || 0,
+            memberIds: Array.isArray(data.memberDetails)
+              ? data.memberDetails.map((m: any) => m.id)
+              : [],
+          };
+        }));
+        // Store member profiles for the AddExpenseModal
+        if (Array.isArray(data.memberDetails)) {
+          setMemberProfilesLookup(prev => ({ ...prev, [tripId]: data.memberDetails.map((m: any) => ({ id: m.id, name: m.name, avatarUrl: m.avatar_url || '' })) }));
+        }
+      })
+      .catch(() => {});
   };
 
   const handleBackToTrips = () => {
@@ -90,27 +298,73 @@ export default function App() {
   const handleAddExpense = (newExpenseData: Omit<Expense, 'id'>) => {
     if (!selectedTripId) return;
 
-    setTrips(prevTrips => 
+    const newExpense: Expense = {
+      ...newExpenseData,
+      id: `e-${Date.now()}`
+    };
+
+    fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...newExpenseData, id: newExpense.id, tripId: selectedTripId }),
+    })
+      .then(async r => {
+        if (!r.ok) {
+          let msg = `API ${r.status}`;
+          try { const j = await r.json(); msg = j.message || msg; } catch {}
+          throw new Error(msg);
+        }
+      })
+      .then(() => {
+        setTrips(prevTrips => prevTrips.map(trip => {
+          if (trip.id !== selectedTripId) return trip;
+          return { ...trip, expenses: [newExpense, ...trip.expenses] };
+        }));
+      })
+      .catch(err => {
+        console.error('Add expense failed:', err);
+        alert(`ไม่สามารถบันทึกค่าใช้จ่ายได้ (${err.message})`);
+      });
+  };
+
+  // Dynamic Edit Expense
+  const handleEditExpense = (expenseId: string) => {
+    if (!selectedTripId) return;
+    const trip = trips.find(t => t.id === selectedTripId);
+    if (!trip) return;
+    const expense = trip.expenses.find(e => e.id === expenseId);
+    if (!expense) return;
+    setEditingExpense(expense);
+    setIsExpenseModalOpen(true);
+  };
+
+  // Dynamic Update Expense
+  const handleUpdateExpense = (expenseId: string, updates: Partial<Expense>) => {
+    if (!selectedTripId) return;
+    setTrips(prevTrips =>
       prevTrips.map(trip => {
         if (trip.id === selectedTripId) {
-          const newExpense: Expense = {
-            ...newExpenseData,
-            id: `e-${Date.now()}`
-          };
           return {
             ...trip,
-            expenses: [newExpense, ...trip.expenses]
+            expenses: trip.expenses.map(e => e.id === expenseId ? { ...e, ...updates } : e)
           };
         }
         return trip;
       })
     );
+    fetch(`/api/expenses/${expenseId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...updates, tripId: selectedTripId }),
+    }).catch(() => {});
   };
 
   // Dynamic Delete Expense
   const handleDeleteExpense = (expenseId: string) => {
     if (!selectedTripId) return;
+    if (!confirm('คุณต้องการลบค่าใช้จ่ายนี้ใช่หรือไม่?')) return;
 
+    fetch(`/api/expenses/${expenseId}`, { method: 'DELETE' }).catch(() => {});
     setTrips(prevTrips =>
       prevTrips.map(trip => {
         if (trip.id === selectedTripId) {
@@ -126,22 +380,49 @@ export default function App() {
 
   // Admin creating a new trip
   const handleAddTrip = (newTripData: Omit<Trip, 'id' | 'expenses'>) => {
+    const newId = `t-${Date.now()}`;
     const newTrip: Trip = {
       ...newTripData,
-      id: `t-${Date.now()}`,
+      id: newId,
       expenses: []
     };
     setTrips([newTrip, ...trips]);
+    fetch('/api/trips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...newTripData, id: newId }),
+    }).catch(() => {});
+    setSelectedTripId(null);
+    setActiveTab('dashboard');
   };
 
   const handleUpdateTrip = (tripId: string, updates: Partial<Trip>) => {
     setTrips(prev => prev.map(t => t.id === tripId ? { ...t, ...updates } : t));
+    fetch(`/api/trips/${tripId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    }).catch(() => {});
+  };
+
+  const handleUpdateTripMembers = async (tripId: string, memberIds: string[]) => {
+    try {
+      const res = await fetch(`/api/trips/${tripId}/members`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberIds }),
+      });
+      if (res.ok) {
+        setTrips(prev => prev.map(t => t.id === tripId ? { ...t, memberIds } : t));
+      }
+    } catch {}
   };
 
   const handleDeleteTrip = (tripId: string) => {
     if (confirm('คุณต้องการลบทริปนี้ออกจากระบบใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้')) {
       setTrips(prev => prev.filter(t => t.id !== tripId));
       setSelectedTripId(null);
+      fetch(`/api/trips/${tripId}`, { method: 'DELETE' }).catch(() => {});
     }
   };
 
@@ -151,26 +432,7 @@ export default function App() {
     status: deriveTripStatus(t.dates)
   }));
 
-  // Filter trips based on user membership
-  const isUserInTrip = (trip: Trip, userName: string): boolean => {
-    // Check hardcoded members by trip ID
-    const hardcodedMembers: Record<string, string[]> = {
-      't-chiangmai': ['คุณต้น', 'คุณพลอย', 'สมชาย'],
-      't-japan': ['ต้น', 'ก้อย', 'แพรว', 'บาส'],
-    };
-    const members = hardcodedMembers[trip.id] || [];
-    if (members.some(m => userName.includes(m) || m.includes(userName))) return true;
-
-    // Check expenses
-    return trip.expenses.some(e =>
-      e.paidBy === userName ||
-      e.splitWith.includes(userName)
-    );
-  };
-
-  const visibleTrips = profile.isAdmin
-    ? tripsWithDerivedStatus
-    : tripsWithDerivedStatus.filter(t => isUserInTrip(t, profile.name));
+  const visibleTrips = tripsWithDerivedStatus;
 
   // Render proper sub-components for logged-in view
   const renderTabContent = () => {
@@ -182,10 +444,13 @@ export default function App() {
         <TripDetail 
           trip={currentTrip} 
           onBack={handleBackToTrips}
-          onAddExpenseClick={() => setIsExpenseModalOpen(true)}
+          onAddExpenseClick={() => { setEditingExpense(null); setIsExpenseModalOpen(true); }}
+          onEditExpense={handleEditExpense}
           onDeleteExpense={handleDeleteExpense}
           onUpdateTrip={(updates) => handleUpdateTrip(currentTrip.id, updates)}
+          onUpdateTripMembers={(memberIds) => handleUpdateTripMembers(currentTrip.id, memberIds)}
           onDeleteTrip={() => handleDeleteTrip(currentTrip.id)}
+          currentUserName={profile.name}
         />
       );
     }
@@ -197,6 +462,8 @@ export default function App() {
             trips={visibleTrips} 
             onSelectTrip={handleSelectTrip} 
             isAdmin={profile.isAdmin}
+            isPendingApproval={profile.status === 'pending'}
+            onCheckApprovalStatus={handleCheckApprovalStatus}
             onCreateNewTrip={() => {
               if (profile.isAdmin) {
                 setActiveTab('admin');
@@ -212,9 +479,21 @@ export default function App() {
         return (
           <ProfileEdit 
             profile={profile} 
-            onSave={(updated) => {
+            onSave={async (updated) => {
               setProfile(updated);
               localStorage.setItem(`user_profile_${updated.phone}`, JSON.stringify(updated));
+              try {
+                await fetch(`/api/profile/${encodeURIComponent(updated.phone)}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    name: updated.name,
+                    bankAccount: updated.bankAccount,
+                    avatarUrl: updated.avatarUrl,
+                    isAdmin: updated.isAdmin,
+                  }),
+                });
+              } catch {}
               alert('บันทึกข้อมูลโปรไฟล์สำเร็จเรียบร้อยแล้ว');
               setActiveTab('dashboard');
             }}
@@ -244,11 +523,15 @@ export default function App() {
         onConfirm={() => {
           setSessionState('logged-in');
           setActiveTab('dashboard');
+          setSelectedTripId(null);
         }}
         onEdit={() => {
           setSessionState('onboarding');
         }}
         onSwitchAccount={() => {
+          localStorage.removeItem('tb_sessionState');
+          localStorage.removeItem('tb_phone');
+          localStorage.removeItem('tb_profile');
           setSessionState('not-logged-in');
           setPhoneNumber('');
         }}
@@ -354,6 +637,9 @@ export default function App() {
             </button>
             )}
 
+            {/* Install App Button (PWA) — visible when the browser supports it */}
+            <InstallButton />
+
             {/* User Profile Avatar - circular button, click to edit */}
             <div 
               onClick={() => {
@@ -365,7 +651,7 @@ export default function App() {
               }`}
               title="คลิกรูปโปรไฟล์เพื่อแก้ไขโปรไฟล์ของคุณ"
             >
-              <img className="w-full h-full object-cover" alt="User Avatar" src={profile.avatarUrl} />
+              <img className="w-full h-full object-cover" alt="User Avatar" src={profile.avatarUrl || getFallbackAvatar(profile.name)} />
               <div className="absolute inset-0 bg-black/20 opacity-0 hover:opacity-100 flex items-center justify-center text-white transition-opacity">
                 <span className="material-symbols-outlined text-[14px]">edit</span>
               </div>
@@ -375,6 +661,9 @@ export default function App() {
             <button
               onClick={() => {
                 if (confirm('คุณต้องการออกจากระบบใช่หรือไม่?')) {
+                  localStorage.removeItem('tb_sessionState');
+                  localStorage.removeItem('tb_phone');
+                  localStorage.removeItem('tb_profile');
                   setSessionState('not-logged-in');
                 }
               }}
@@ -449,7 +738,7 @@ export default function App() {
       {/* FAB Floating action button for quick Add Expense inside Trips details */}
       {selectedTripId && (
         <button 
-          onClick={() => setIsExpenseModalOpen(true)}
+          onClick={() => { setEditingExpense(null); setIsExpenseModalOpen(true); }}
           className="fixed bottom-6 right-6 w-14 h-14 bg-secondary-orange hover:bg-secondary-orange-hover text-white rounded-full flex items-center justify-center shadow-xl hover:shadow-2xl transition-all hover:scale-110 active:scale-95 cursor-pointer z-50 group"
           title="เพิ่มค่าใช้จ่ายด่วน"
         >
@@ -460,42 +749,43 @@ export default function App() {
       {/* Add Expense Modal */}
       {(() => {
         const activeTrip = trips.find(t => t.id === selectedTripId);
-        const getTripParticipantNames = (trip: Trip): string[] => {
-          const namesSet = new Set<string>();
-          
-          if (trip.id === 't-chiangmai') {
-            namesSet.add('คุณต้น');
-            namesSet.add('คุณพลอย');
-            namesSet.add('สมชาย');
-          } else if (trip.id === 't-japan') {
-            namesSet.add('ต้น');
-            namesSet.add('ก้อย');
-            namesSet.add('แพรว');
-            namesSet.add('บาส');
-          }
+        const getTripParticipantProfiles = (trip: Trip): { id?: string; name: string; avatarUrl: string }[] => {
+          const namesMap = new Map<string, { id?: string; name: string; avatarUrl: string }>();
 
           trip.expenses.forEach(e => {
-            if (e.paidBy) namesSet.add(e.paidBy);
-            if (e.splitWith) e.splitWith.forEach(n => namesSet.add(n));
+            if (e.paidBy) namesMap.set(e.paidBy, { id: e.paidById, name: e.paidBy, avatarUrl: '' });
+            if (e.splitWith) e.splitWith.forEach((n, i) => {
+              const id = e.splitWithIds?.[i];
+              if (!namesMap.has(n)) namesMap.set(n, { id, name: n, avatarUrl: '' });
+            });
           });
 
-          if (trip.memberIds) {
-            // memberIds are member database IDs, we'd need to look up names
-            // For now, names from expenses are sufficient
+          // Add member profiles from trip member list (overwrite with DB avatars)
+          if (trip.memberIds && trip.memberIds.length > 0) {
+            const profiles = memberProfilesLookup[trip.id] || [];
+            profiles.forEach(p => {
+              namesMap.set(p.name, p);
+            });
           }
 
-          return Array.from(namesSet);
+          return Array.from(namesMap.values());
         };
-        const activeTripMembers = activeTrip ? getTripParticipantNames(activeTrip) : undefined;
+        const activeTripProfiles = activeTrip ? getTripParticipantProfiles(activeTrip) : undefined;
         return (
           <AddExpenseModal 
             isOpen={isExpenseModalOpen}
-            onClose={() => setIsExpenseModalOpen(false)}
+            onClose={() => { setIsExpenseModalOpen(false); setEditingExpense(null); }}
             onAddExpense={handleAddExpense}
-            memberNames={activeTripMembers}
+            onUpdateExpense={handleUpdateExpense}
+            editingExpense={editingExpense}
+            memberProfiles={activeTripProfiles}
+            currentUserName={profile.name}
           />
         );
       })()}
+
+      {/* PWA install + update banners */}
+      <PwaBanner />
     </div>
   );
 }

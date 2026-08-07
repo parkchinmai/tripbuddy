@@ -4,8 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { HOTLINKS } from '../data';
 import BankSelect from './BankSelect';
+import { uploadImage, cropSquare } from '../lib/r2';
+import ImagePositionPicker, { positionToCss } from './ImagePositionPicker';
 
 interface OnboardingProps {
   phoneNumber: string;
@@ -17,21 +18,21 @@ export default function Onboarding({ phoneNumber, onOnboardingComplete }: Onboar
   const [selectedBank, setSelectedBank] = useState<string>('พร้อมเพย์');
   const [accountNo, setAccountNo] = useState<string>('');
   const [selectedAvatar, setSelectedAvatar] = useState<string>('');
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarUrl, setPendingAvatarUrl] = useState<string>('');
+  const [avatarPos, setAvatarPos] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleFileChange = (file: File) => {
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          setSelectedAvatar(e.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
-    } else {
+    if (!file || !file.type.startsWith('image/')) {
       alert('กรุณาอัปโหลดไฟล์รูปภาพที่ถูกต้อง (.png, .jpg, .jpeg, .webp)');
+      return;
     }
+    if (pendingAvatarUrl) URL.revokeObjectURL(pendingAvatarUrl);
+    setPendingAvatarUrl(URL.createObjectURL(file));
+    setPendingAvatarFile(file);
+    setAvatarPos({ x: 50, y: 50 });
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -59,13 +60,13 @@ export default function Onboarding({ phoneNumber, onOnboardingComplete }: Onboar
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       alert('กรุณากรอกชื่อของคุณ');
       return;
     }
-    if (!selectedAvatar) {
+    if (!selectedAvatar && !pendingAvatarFile) {
       alert('กรุณาอัปโหลดรูปโปรไฟล์ของคุณ');
       return;
     }
@@ -73,9 +74,22 @@ export default function Onboarding({ phoneNumber, onOnboardingComplete }: Onboar
       alert('กรุณากรอกเลขที่บัญชีหรือบัญชีพร้อมเพย์');
       return;
     }
+
+    let avatarUrl = selectedAvatar;
+    if (pendingAvatarFile) {
+      try {
+        const cropped = await cropSquare(pendingAvatarFile, avatarPos);
+        const result = await uploadImage(cropped, 'avatars');
+        avatarUrl = result.url;
+      } catch (err: any) {
+        alert(err.message || 'อัพโหลดไม่สำเร็จ');
+        return;
+      }
+    }
+
     onOnboardingComplete({
       name,
-      avatarUrl: selectedAvatar,
+      avatarUrl,
       bankAccount: `${accountNo} (${selectedBank})`
     });
   };
@@ -167,13 +181,14 @@ export default function Onboarding({ phoneNumber, onOnboardingComplete }: Onboar
                       : 'border-slate-300 border-dashed bg-slate-50 hover:bg-slate-100/80 hover:border-primary/50'
                 }`}
               >
-                {selectedAvatar ? (
+                {selectedAvatar || pendingAvatarUrl ? (
                   <>
                     <img 
                       id="main-avatar"
                       className="w-full h-full object-cover" 
                       alt="Uploaded Avatar" 
-                      src={selectedAvatar}
+                      src={pendingAvatarUrl || selectedAvatar}
+                      style={{ objectPosition: positionToCss(avatarPos) }}
                     />
                     <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center text-white transition-opacity text-xs font-bold">
                       เปลี่ยนรูปภาพ
@@ -194,6 +209,17 @@ export default function Onboarding({ phoneNumber, onOnboardingComplete }: Onboar
                 <span className="material-symbols-outlined text-sm">photo_camera</span>
               </div>
             </div>
+            {pendingAvatarUrl && (
+              <div className="w-full max-w-[220px]">
+                <ImagePositionPicker
+                  src={pendingAvatarUrl}
+                  position={avatarPos}
+                  onPositionChange={setAvatarPos}
+                  aspect={1}
+                />
+                <p className="text-[10px] text-slate-400 font-semibold text-center mt-1">ลากรูปเพื่อจัดกึ่งกลางใบหน้า</p>
+              </div>
+            )}
           </div>
 
           {/* Form Fields */}

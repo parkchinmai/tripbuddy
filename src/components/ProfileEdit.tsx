@@ -5,9 +5,9 @@
 
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
-import { HOTLINKS } from '../data';
-import { uploadImage } from '../lib/r2';
+import { uploadImage, cropSquare } from '../lib/r2';
 import BankSelect from './BankSelect';
+import ImagePositionPicker, { positionToCss } from './ImagePositionPicker';
 
 interface ProfileEditProps {
   profile: UserProfile;
@@ -66,20 +66,21 @@ export default function ProfileEdit({ profile, onSave, onCancel }: ProfileEditPr
   const [selectedBank, setSelectedBank] = useState<string>(initialBankInfo.bank);
   const [accountNo, setAccountNo] = useState<string>(initialBankInfo.no);
   const [selectedAvatar, setSelectedAvatar] = useState<string>(profile.avatarUrl);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarUrl, setPendingAvatarUrl] = useState<string>('');
+  const [avatarPos, setAvatarPos] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleFileChange = async (file: File) => {
+  const handleFileChange = (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('กรุณาอัปโหลดไฟล์รูปภาพที่ถูกต้อง (.png, .jpg, .jpeg, .webp)');
       return;
     }
-    try {
-      const result = await uploadImage(file);
-      setSelectedAvatar(result.url);
-    } catch (err: any) {
-      alert(err.message || 'อัพโหลดไม่สำเร็จ');
-    }
+    if (pendingAvatarUrl) URL.revokeObjectURL(pendingAvatarUrl);
+    setPendingAvatarUrl(URL.createObjectURL(file));
+    setPendingAvatarFile(file);
+    setAvatarPos({ x: 50, y: 50 });
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,7 +155,7 @@ export default function ProfileEdit({ profile, onSave, onCancel }: ProfileEditPr
     setAccountNo(val);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       alert('กรุณากรอกชื่อ-นามสกุล / ชื่อเล่น');
@@ -170,12 +171,24 @@ export default function ProfileEdit({ profile, onSave, onCancel }: ProfileEditPr
       return;
     }
 
+    let avatarUrl = selectedAvatar;
+    if (pendingAvatarFile) {
+      try {
+        const cropped = await cropSquare(pendingAvatarFile, avatarPos);
+        const result = await uploadImage(cropped, 'avatars');
+        avatarUrl = result.url;
+      } catch (err: any) {
+        alert(err.message || 'อัพโหลดไม่สำเร็จ');
+        return;
+      }
+    }
+
     onSave({
       ...profile,
       name,
-      phone: formatPhoneNumber(phone),
+      phone,
       bankAccount: `${accountNo} (${selectedBank})`,
-      avatarUrl: selectedAvatar
+      avatarUrl
     });
   };
 
@@ -216,12 +229,13 @@ export default function ProfileEdit({ profile, onSave, onCancel }: ProfileEditPr
                     : 'border-slate-300 border-dashed bg-slate-50 hover:bg-slate-100/80 hover:border-primary/50'
               }`}
             >
-              {selectedAvatar ? (
+              {selectedAvatar || pendingAvatarUrl ? (
                 <>
                   <img 
                     className="w-full h-full object-cover" 
                     alt="Uploaded Avatar" 
-                    src={selectedAvatar}
+                    src={pendingAvatarUrl || selectedAvatar}
+                    style={{ objectPosition: positionToCss(avatarPos) }}
                   />
                   <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center text-white transition-opacity text-xs font-bold">
                     เปลี่ยนรูปภาพ
@@ -242,6 +256,17 @@ export default function ProfileEdit({ profile, onSave, onCancel }: ProfileEditPr
               <span className="material-symbols-outlined text-sm">photo_camera</span>
             </div>
           </div>
+          {pendingAvatarUrl && (
+            <div className="w-full max-w-[240px]">
+              <ImagePositionPicker
+                src={pendingAvatarUrl}
+                position={avatarPos}
+                onPositionChange={setAvatarPos}
+                aspect={1}
+              />
+              <p className="text-[10px] text-slate-400 font-semibold text-center mt-1">ลากรูปเพื่อจัดกึ่งกลางใบหน้า</p>
+            </div>
+          )}
         </div>
 
         {/* Input Fields */}

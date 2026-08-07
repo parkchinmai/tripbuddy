@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { Trip } from '../types';
-import { defaultMembers } from '../data';
+import React, { useState, useEffect } from 'react';
+import { Trip, Member } from '../types';
 import { uploadImage } from '../lib/r2';
+import ImagePositionPicker, { positionToCss } from './ImagePositionPicker';
 
 interface AdminDashboardProps {
   trips: Trip[];
@@ -24,7 +24,6 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
     });
   });
   const totalMembers = uniqueMembers.size;
-  const approvedMembers = defaultMembers.filter(m => m.status === 'approved');
 
   // Form states for creating a new trip
   const [tripTitle, setTripTitle] = useState<string>('');
@@ -34,7 +33,47 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
   const [budget, setBudget] = useState<string>('');
   const [country, setCountry] = useState<string>('Thailand');
   const [coverImgUrl, setCoverImgUrl] = useState<string>('');
+  const [coverPosition, setCoverPosition] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+
+  const [pendingMembers, setPendingMembers] = useState<any[]>([]);
+  const [approving, setApproving] = useState<string | null>(null);
+  const [allMembers, setAllMembers] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/members')
+      .then(r => r.json())
+      .then(data => {
+        const list = Array.isArray(data) ? data : (data.results || []);
+        setPendingMembers(list.filter((m: any) => m.status === 'pending'));
+        setAllMembers(list.filter((m: any) => m.status === 'approved'));
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleApprove = async (id: string) => {
+    setApproving(id);
+    try {
+      await fetch(`/api/members/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved', accessLevel: 'user' }),
+      });
+      setPendingMembers(prev => prev.filter(m => m.id !== id));
+    } catch {}
+    setApproving(null);
+  };
+
+  const handleReject = async (id: string) => {
+    try {
+      await fetch(`/api/members/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'suspended' }),
+      });
+      setPendingMembers(prev => prev.filter(m => m.id !== id));
+    } catch {}
+  };
 
   const toggleMember = (id: string) => {
     setSelectedMemberIds(prev =>
@@ -60,6 +99,7 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
       dates: `${startDate} - ${endDate}`,
       budget: totalBudget,
       coverImgUrl: coverImgUrl || 'https://lh3.googleusercontent.com/aida-public/AB6AXuB5LpSYEcXv8EpLbDAxiurCPURoAaTlc1FTAnY5ahJBO5laMIrcmqww-_72vJhnHBzgaacJHA2XrMxYLPE2cdN_UESk7K4QeBoj45M4U6Omucv_TlkK0zS_Mw0eSlESIYqNRpVusQAraT51gjI0awCHAH-Ft1G6Z8Q9f_EYepQODjl-Ha2ks7A9OocNK9DRdPa4ilQmylBS4Ou_ngPS6iE0Iiyfw18S1hvX9FDDgxOaqR5wnJhZ3aYHWj2krtJuaPOGOceXIhNtUm8',
+      coverPosition: positionToCss(coverPosition),
       status: 'upcoming',
       memberCount: count,
       memberIds: selectedMemberIds,
@@ -72,8 +112,20 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
     setEndDate('');
     setBudget('');
     setCoverImgUrl('');
+    setCoverPosition({ x: 50, y: 50 });
     setSelectedMemberIds([]);
     alert('สร้างทริปใหม่สำเร็จ! คุณสามารถดูรายละเอียดทริปใหม่ได้ในหน้ารายการทริปหลัก');
+  };
+
+  const handleCancelCreate = () => {
+    setTripTitle('');
+    setDestination('');
+    setStartDate('');
+    setEndDate('');
+    setBudget('');
+    setCoverImgUrl('');
+    setCoverPosition({ x: 50, y: 50 });
+    setSelectedMemberIds([]);
   };
 
   return (
@@ -119,6 +171,46 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
 
       {/* Main: creation form */}
       <div className="grid grid-cols-1 gap-6">
+        {/* Pending Approval Requests */}
+        {pendingMembers.length > 0 && (
+          <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-800">คำขอสมัครสมาชิกที่รออนุมัติ</h3>
+              <p className="text-xs text-slate-400 font-semibold mt-0.5">มี {pendingMembers.length} คำขอที่รอการตรวจสอบ</p>
+            </div>
+            <div className="space-y-2">
+              {pendingMembers.map(m => (
+                <div key={m.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 border border-slate-100">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-primary-light text-primary flex items-center justify-center text-sm font-bold shrink-0">
+                      {m.name?.charAt(0) || '?'}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{m.name}</p>
+                      <p className="text-xs text-slate-400">{m.phone}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => handleApprove(m.id)}
+                      disabled={approving === m.id}
+                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs font-bold rounded-full cursor-pointer transition-colors"
+                    >
+                      {approving === m.id ? 'กำลังดำเนินการ...' : 'อนุมัติ'}
+                    </button>
+                    <button
+                      onClick={() => handleReject(m.id)}
+                      className="px-3 py-1.5 bg-red-400 hover:bg-red-500 text-white text-xs font-bold rounded-full cursor-pointer transition-colors"
+                    >
+                      ไม่อนุมัติ
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Create trip form */}
         <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
           <div>
@@ -212,8 +304,9 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
                   const file = e.target.files?.[0];
                   if (!file) return;
                   try {
-                    const result = await uploadImage(file);
+                    const result = await uploadImage(file, 'trips');
                     setCoverImgUrl(result.url);
+                    setCoverPosition({ x: 50, y: 50 });
                   } catch (err: any) {
                     alert(err.message || 'อัพโหลดไม่สำเร็จ');
                   }
@@ -222,42 +315,44 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
             </div>
 
             {coverImgUrl && (
-              <img src={coverImgUrl} alt="Preview" className="w-full h-20 object-cover rounded-xl border border-slate-100" />
+              <div className="space-y-1">
+                <ImagePositionPicker
+                  src={coverImgUrl}
+                  position={coverPosition}
+                  onPositionChange={setCoverPosition}
+                  aspect={16 / 9}
+                />
+                <p className="text-[10px] text-slate-400 font-semibold px-1">ลากรูปเพื่อจัดตำแหน่งรูปหน้าปก</p>
+              </div>
             )}
 
             <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500">เลือกสมาชิกจากฐานข้อมูล ({selectedMemberIds.length} คน)</label>
-              <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
-                {approvedMembers.length === 0 ? (
-                  <p className="text-xs text-slate-400">ไม่มีสมาชิกที่อนุมัติแล้วในขณะนี้</p>
-                ) : (
-                  approvedMembers.map(member => {
-                    const checked = selectedMemberIds.includes(member.id);
+              <label className="text-xs font-bold text-slate-500">สมาชิกร่วมทริป ({selectedMemberIds.length} คน)</label>
+              {allMembers.length === 0 ? (
+                <p className="text-xs text-slate-400">ยังไม่มีสมาชิกที่อนุมัติแล้ว กรุณาอนุมัติสมาชิกก่อน</p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                  {allMembers.map(m => {
+                    const selected = selectedMemberIds.includes(m.id);
                     return (
-                      <label 
-                        key={member.id}
-                        className={`flex items-center gap-3 p-2.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                          checked ? 'border-primary bg-primary-light/40' : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                      <label
+                        key={m.id}
+                        onClick={() => toggleMember(m.id)}
+                        className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-colors ${
+                          selected ? 'bg-primary-light border-primary' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
                         }`}
                       >
-                        <input 
-                          type="checkbox"
-                          className="w-4 h-4 accent-primary shrink-0"
-                          checked={checked}
-                          onChange={() => toggleMember(member.id)}
-                        />
-                        <div className="w-9 h-9 rounded-full overflow-hidden shrink-0">
-                          <img className="w-full h-full object-cover" alt={member.name} src={member.avatarUrl} />
+                        <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 bg-slate-200">
+                          <img className="w-full h-full object-cover" alt={m.name} src={m.avatar_url || ''} />
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-slate-800 text-sm truncate">{member.name}</p>
-                          <p className="text-xs text-slate-400 truncate">โทร: {member.phone}</p>
-                        </div>
+                        <span className={`text-xs font-bold truncate ${selected ? 'text-primary' : 'text-slate-600'}`}>
+                          {m.name}
+                        </span>
                       </label>
                     );
-                  })
-                )}
-              </div>
+                  })}
+                </div>
+              )}
             </div>
 
             {(parseFloat(budget) > 0 && selectedMemberIds.length > 0) && (
@@ -269,13 +364,22 @@ export default function AdminDashboard({ trips, onAddTrip }: AdminDashboardProps
               </div>
             )}
 
-            <button 
-              type="submit"
-              className="w-full py-3 bg-secondary-orange hover:bg-secondary-orange-hover text-white rounded-full text-sm font-bold shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
-            >
-              <span className="material-symbols-outlined">add_task</span>
-              <span>สร้างทริปสู่ระบบ</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleCancelCreate}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full text-sm font-bold transition-all active:scale-95 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button 
+                type="submit"
+                className="flex-1 py-3 bg-secondary-orange hover:bg-secondary-orange-hover text-white rounded-full text-sm font-bold shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <span className="material-symbols-outlined">add_task</span>
+                <span>สร้างทริปสู่ระบบ</span>
+              </button>
+            </div>
           </form>
         </section>
       </div>

@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Member } from '../types';
-import { defaultMembers } from '../data';
 import { bankLogos, BankLogoKey, GenericBankLogo } from './BankLogos';
 
 interface MemberDatabaseProps {
@@ -42,10 +41,36 @@ const getAccountNumber = (bankAccount: string): string => {
   return match ? match[1].trim() : bankAccount;
 };
 
+function mapMember(m: any): Member {
+  return {
+    id: m.id,
+    name: m.name,
+    phone: m.phone,
+    avatarUrl: m.avatar_url || '',
+    bankAccount: m.bank_account || '',
+    status: m.status || 'pending',
+    joinDate: m.join_date || '',
+    accessLevel: m.access_level || 'user',
+  };
+}
+
 export default function MemberDatabase({ isAdmin }: MemberDatabaseProps) {
-  const [members, setMembers] = useState<Member[]>(defaultMembers);
+  const [members, setMembers] = useState<Member[]>([]);
   const [query, setQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  useEffect(() => {
+    fetch('/api/members')
+      .then(r => {
+        if (!r.ok) throw new Error('fetch failed');
+        return r.json();
+      })
+      .then(data => {
+        const list = Array.isArray(data) ? data : ((data as any).results || []);
+        setMembers(list.map(mapMember));
+      })
+      .catch(() => setMembers([]));
+  }, []);
 
   if (!isAdmin) {
     return (
@@ -71,26 +96,45 @@ export default function MemberDatabase({ isAdmin }: MemberDatabaseProps) {
   const pendingCount = members.filter(m => m.status === 'pending').length;
   const suspendedCount = members.filter(m => m.status === 'suspended').length;
 
+  const updateMember = (id: string, updates: Record<string, unknown>) => {
+    fetch(`/api/members/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    }).catch(() => {});
+  };
+
   const handleToggleAccess = (id: string) => {
-    setMembers(members.map(m =>
-      m.id === id ? { ...m, accessLevel: m.accessLevel === 'admin' ? 'user' : 'admin' } : m
-    ));
+    const m = members.find(x => x.id === id);
+    if (!m) return;
+    const next = m.accessLevel === 'admin' ? 'user' : 'admin';
+    setMembers(members.map(x => x.id === id ? { ...x, accessLevel: next } : x));
+    updateMember(id, { accessLevel: next });
   };
 
   const handleToggleStatus = (id: string) => {
-    setMembers(members.map(m =>
-      m.id === id ? { ...m, status: nextStatus[m.status] } : m
-    ));
+    const m = members.find(x => x.id === id);
+    if (!m) return;
+    const next = nextStatus[m.status];
+    setMembers(members.map(x => x.id === id ? { ...x, status: next } : x));
+    updateMember(id, { status: next });
   };
 
   const pendingMembers = members.filter(m => m.status === 'pending');
 
   const handleApprove = (id: string) => {
     setMembers(members.map(m => m.id === id ? { ...m, status: 'approved' as const } : m));
+    updateMember(id, { status: 'approved', accessLevel: 'user' });
   };
 
   const handleReject = (id: string) => {
-    setMembers(members.map(m => m.id === id ? { ...m, status: 'suspended' as const } : m));
+    const m = members.find(x => x.id === id);
+    if (!m) return;
+    if (!window.confirm(`ปฏิเสธสมาชิก "${m.name}"? ข้อมูลทั้งหมดของสมาชิกนี้จะถูกลบออกจากระบบถาวร (ทริปที่ร่วม สมาชิก และรูปโปรไฟล์)`)) return;
+    setMembers(members.filter(x => x.id !== id));
+    fetch(`/api/members/${id}`, {
+      method: 'DELETE',
+    }).catch(() => {});
   };
 
   return (
@@ -131,8 +175,9 @@ export default function MemberDatabase({ isAdmin }: MemberDatabaseProps) {
                   <button 
                     onClick={() => handleReject(member.id)}
                     className="flex-1 sm:flex-none px-4 py-2 bg-white border-2 border-red-200 text-red-500 hover:bg-red-50 rounded-full text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1"
+                    title="ลบสมาชิกและข้อมูลทั้งหมดออกจากระบบ"
                   >
-                    <span className="material-symbols-outlined text-[14px]">close</span>
+                    <span className="material-symbols-outlined text-[14px]">delete</span>
                     <span>ปฏิเสธ</span>
                   </button>
                 </div>

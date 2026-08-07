@@ -1,6 +1,7 @@
 import React from 'react';
 import { UserProfile } from '../types';
 import SuitcaseLogo from './SuitcaseLogo';
+import { getFallbackAvatar } from '../data';
 
 interface WelcomeBackProps {
   profile: UserProfile;
@@ -51,7 +52,7 @@ export default function WelcomeBack({ profile, onConfirm, onEdit, onSwitchAccoun
                 <img 
                   className="w-full h-full object-cover" 
                   alt={profile.name} 
-                  src={profile.avatarUrl} 
+                  src={profile.avatarUrl || getFallbackAvatar(profile.name)} 
                 />
               </div>
             </div>

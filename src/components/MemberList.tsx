@@ -5,14 +5,12 @@
 
 import React, { useState } from 'react';
 import { Member } from '../types';
-import { defaultMembers } from '../data';
-
 interface MemberListProps {
   isAdmin: boolean;
 }
 
 export default function MemberList({ isAdmin }: MemberListProps) {
-  const [members, setMembers] = useState<Member[]>(defaultMembers);
+  const [members, setMembers] = useState<Member[]>([]);
   const [filter, setFilter] = useState<string>('all');
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
 

@@ -1,11 +1,11 @@
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-function generateKey(fileName: string): string {
+function generateKey(fileName: string, folder: string): string {
   const ext = fileName.split('.').pop() || 'jpg';
   const ts = Date.now();
   const rand = Math.random().toString(36).slice(2, 8);
-  return `trips/${ts}-${rand}.${ext}`;
+  return `${folder}/${ts}-${rand}.${ext}`;
 }
 
 export async function onRequest(context) {
@@ -36,6 +36,7 @@ export async function onRequest(context) {
 
   const formData = await request.formData();
   const file = formData.get('file');
+  const folder = formData.get('folder') || 'trips';
 
   if (!file || !(file instanceof File)) {
     return new Response(JSON.stringify({ error: 'ไม่พบไฟล์ที่ส่งมา' }), {
@@ -55,7 +56,7 @@ export async function onRequest(context) {
     });
   }
 
-  const key = generateKey(file.name);
+  const key = generateKey(file.name, folder as string);
   const arrayBuffer = await file.arrayBuffer();
 
   await env.TRIP_IMAGES.put(key, arrayBuffer, {

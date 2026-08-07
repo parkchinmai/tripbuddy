@@ -3,24 +3,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { BillItem, FeeMode, FeeOrder } from './lib/splitBill';
+
 export interface UserProfile {
   name: string;
   phone: string;
   bankAccount: string;
   avatarUrl: string;
   isAdmin: boolean;
+  status?: string;
 }
 
 export interface Expense {
   id: string;
   title: string;
   amount: number;
-  category: 'Food' | 'Travel' | 'Accommodation' | 'Other';
+  category: 'Food' | 'Travel' | 'Accommodation' | 'Shopping' | 'Activities' | 'Other';
   date: string;
   paidBy: string;
-  splitWith: string[]; // List of names
-  customShares?: Record<string, number>; // Mapping of name -> amount
+  paidById?: string;
+  splitWith: string[];
+  splitWithIds?: string[];
+  customShares?: Record<string, number>;
   slipUrl?: string;
+  mode?: 'simple' | 'split';
+  splitItems?: BillItem[];
+  feeMode?: FeeMode;
+  feeOrder?: FeeOrder;
 }
 
 export interface Trip {
@@ -32,11 +41,13 @@ export interface Trip {
   budget: number;
   expenses: Expense[];
   coverImgUrl: string;
+  coverPosition?: string;
   description?: string;
   status: 'active' | 'upcoming' | 'past';
   days?: number;
   memberCount?: number;
   memberIds?: string[];
+  memberNames?: string[];
   budgetPerPerson?: number;
 }
 

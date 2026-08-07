@@ -7,6 +7,7 @@
  */
 
 import type { ReactElement } from 'react';
+import promptpayLogo from '../assets/images/promptpay-logo.png';
 
 interface BankLogoProps {
   className?: string;
@@ -131,20 +132,8 @@ export function GsbLogo({ className }: BankLogoProps) {
 }
 
 export function PromptPayLogo({ className }: BankLogoProps) {
-  // PromptPay: orange rounded square with white mark
-  return (
-    <svg viewBox="0 0 48 48" className={className} role="img" aria-label="PromptPay">
-      <rect width="48" height="48" rx="12" fill="#FF6B35" />
-      <path
-        d="M16 16 L24 32 L32 16"
-        fill="none"
-        stroke="#FFFFFF"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  // PromptPay: official Thai QR logo image
+  return <img src={promptpayLogo} alt="PromptPay" className={`${className} object-cover`} />;
 }
 
 export function GenericBankLogo({ className }: BankLogoProps) {

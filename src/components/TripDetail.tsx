@@ -3,35 +3,39 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Trip } from '../types';
-import { HOTLINKS, formatDateRange, calculateSettlements, extractAccountNumber, defaultMembers } from '../data';
+import { formatDateRange, calculateSettlements, extractAccountNumber, getFallbackAvatar } from '../data';
 import { uploadImage } from '../lib/r2';
 import CopyBtn from './CopyBtn';
+import ImagePositionPicker, { parsePosition, positionToCss } from './ImagePositionPicker';
+
+export interface SettlementState {
+  isSettled: boolean;
+  slipUrl?: string;
+  confirmedBy?: string;
+  settledAmount?: number; // total amount confirmed so far for this pair
+}
 
 interface TripDetailProps {
   trip: Trip;
   onBack: () => void;
   onAddExpenseClick: () => void;
+  onEditExpense?: (expenseId: string) => void;
   onDeleteExpense: (expenseId: string) => void;
   onUpdateTrip: (updates: Partial<Trip>) => void;
+  onUpdateTripMembers: (memberIds: string[]) => void;
   onDeleteTrip: () => void;
+  currentUserName?: string;
 }
 
 type TabType = 'overview' | 'expenses' | 'settlement' | 'companions';
 
-const getTripMembers = (trip: Trip) => {
+const getTripMembers = (trip: Trip, memberProfiles: any[] = []) => {
   const namesSet = new Set<string>();
-
-  if (trip.id === 't-chiangmai') {
-    namesSet.add('คุณต้น');
-    namesSet.add('คุณพลอย');
-    namesSet.add('สมชาย');
-  } else if (trip.id === 't-japan') {
-    namesSet.add('ต้น');
-    namesSet.add('ก้อย');
-    namesSet.add('แพรว');
-    namesSet.add('บาส');
+  const profileByName: Record<string, any> = {};
+  for (const p of memberProfiles) {
+    profileByName[p.name] = p;
   }
 
   trip.expenses.forEach(e => {
@@ -41,72 +45,14 @@ const getTripMembers = (trip: Trip) => {
     }
   });
 
-  const allKnownMembers = defaultMembers;
+  const pNames = memberProfiles.map(p => p.name);
+  pNames.forEach(n => namesSet.add(n));
 
-  return Array.from(namesSet).map((name, index) => {
-    let avatarUrl = '';
-    let bankAccount = 'ยังไม่ได้ระบุ';
-    let phone = '08X-XXX-XXXX';
-    let role = 'ผู้ร่วมเดินทาง';
-
-    if (trip.id === 't-chiangmai' || trip.id === 't-japan') {
-      if (name.includes('ต้น')) {
-        avatarUrl = HOTLINKS.member2;
-        bankAccount = 'กสิกรไทย 045-3-22841-9';
-        phone = '089-765-4321';
-        role = 'ผู้จัดทริป';
-      } else if (name.includes('พลอย')) {
-        avatarUrl = HOTLINKS.member1;
-        bankAccount = 'ไทยพาณิชย์ 112-9-88271-0';
-        phone = '086-123-4567';
-        role = 'ผู้บันทึกสลิป';
-      } else if (name.includes('สมชาย')) {
-        avatarUrl = HOTLINKS.arttoyBear;
-        bankAccount = 'กรุงเทพ 045-3-22841-9';
-        phone = '081-234-5678';
-        role = 'ผู้ร่วมเดินทาง';
-      } else if (name.includes('ก้อย')) {
-        avatarUrl = HOTLINKS.avatarPink;
-        bankAccount = 'ทหารไทยธนชาต 442-2-19283-4';
-        phone = '084-221-8899';
-        role = 'ผู้จองโรงแรม';
-      } else if (name.includes('แพรว')) {
-        avatarUrl = HOTLINKS.avatarExplorer;
-        bankAccount = 'กรุงศรีอยุธยา 777-1-02938-5';
-        phone = '083-998-1122';
-        role = 'ผู้ร่วมเดินทาง';
-      } else if (name.includes('บาส')) {
-        avatarUrl = HOTLINKS.avatarRobot;
-        bankAccount = 'ไทยพาณิชย์ 091-2-22918-0';
-        phone = '082-111-0000';
-        role = 'ผู้ร่วมเดินทาง';
-      }
-    }
-
-    if (!avatarUrl) {
-      const knownMember = allKnownMembers.find(m =>
-        m.name.includes(name) || name.includes(m.name)
-      );
-      if (knownMember) {
-        avatarUrl = knownMember.avatarUrl;
-        bankAccount = knownMember.bankAccount;
-        phone = knownMember.phone;
-      }
-    }
-
-    if (!avatarUrl) {
-      const fallbacks = [
-        HOTLINKS.avatarPink,
-        HOTLINKS.avatarExplorer,
-        HOTLINKS.avatarRobot,
-        HOTLINKS.avatarFox,
-        HOTLINKS.arttoyCat,
-        HOTLINKS.arttoyDino
-      ];
-      avatarUrl = fallbacks[index % fallbacks.length];
-      bankAccount = `ธนาคารทั่วไป (รอระบุ)`;
-      phone = `08${Math.floor(10000000 + Math.random() * 90000000)}`;
-    }
+  return Array.from(namesSet).map((name) => {
+    const profile = profileByName[name];
+    const avatarUrl = profile?.avatar_url || getFallbackAvatar(name);
+    const bankAccount = profile?.bank_account || 'ยังไม่ได้ระบุ';
+    const phone = profile?.phone || '08X-XXX-XXXX';
 
     const totalPaid = trip.expenses
       .filter(e => e.paidBy === name)
@@ -115,8 +61,10 @@ const getTripMembers = (trip: Trip) => {
     const totalShare = trip.expenses
       .filter(e => e.splitWith.includes(name))
       .reduce((sum, e) => {
-        if (e.customShares && e.customShares[name] !== undefined) {
-          return sum + e.customShares[name];
+        if (e.customShares) {
+          const id = profileByName[name]?.id;
+          if (id && e.customShares[id] !== undefined) return sum + e.customShares[id];
+          if (e.customShares[name] !== undefined) return sum + e.customShares[name];
         }
         const shareCount = e.splitWith.length || 1;
         return sum + (e.amount / shareCount);
@@ -124,10 +72,10 @@ const getTripMembers = (trip: Trip) => {
 
     return {
       name,
+      id: profile?.id,
       avatarUrl,
       bankAccount,
       phone,
-      role,
       totalPaid,
       totalShare,
       netBalance: totalPaid - totalShare
@@ -139,23 +87,50 @@ export default function TripDetail({
   trip,
   onBack,
   onAddExpenseClick,
+  onEditExpense,
   onDeleteExpense,
   onUpdateTrip,
-  onDeleteTrip
+  onUpdateTripMembers,
+  onDeleteTrip,
+  currentUserName
 }: TripDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedSlip, setSelectedSlip] = useState<string | null>(null);
+  const [memberProfiles, setMemberProfiles] = useState<any[]>([]);
+
+  const profileNameById = (id: string): string => {
+    const p = memberProfiles.find(m => m.id === id);
+    return p ? p.name : id;
+  };
+
+  useEffect(() => {
+    if (trip.memberIds && trip.memberIds.length > 0) {
+      fetch('/api/members')
+        .then(r => r.ok ? r.json() : [])
+        .then(data => {
+          const list = Array.isArray(data) ? data : (data.results || []);
+          setMemberProfiles(list.filter((m: any) => trip.memberIds?.includes(m.id)));
+        })
+        .catch(() => setMemberProfiles([]));
+    } else {
+      setMemberProfiles([]);
+    }
+  }, [trip.id, trip.memberIds]);
 
   const totalSpent = trip.expenses.reduce((sum, e) => sum + e.amount, 0);
   const foodSpent = trip.expenses.filter(e => e.category === 'Food').reduce((sum, e) => sum + e.amount, 0);
   const travelSpent = trip.expenses.filter(e => e.category === 'Travel').reduce((sum, e) => sum + e.amount, 0);
   const lodgingSpent = trip.expenses.filter(e => e.category === 'Accommodation').reduce((sum, e) => sum + e.amount, 0);
-  const otherSpent = trip.expenses.filter(e => e.category === 'Other').reduce((sum, e) => sum + e.amount, 0);
+  const shoppingSpent = trip.expenses.filter(e => e.category === 'Shopping').reduce((sum, e) => sum + e.amount, 0);
+  const activitiesSpent = trip.expenses.filter(e => e.category === 'Activities').reduce((sum, e) => sum + e.amount, 0);
+  const otherSpent = trip.expenses.filter(e => !['Food','Travel','Accommodation','Shopping','Activities'].includes(e.category)).reduce((sum, e) => sum + e.amount, 0);
 
   const categoryData = [
     { name: 'ที่พัก (Accommodation)', amount: lodgingSpent, color: '#fd761a', percent: 0 },
     { name: 'อาหารและเครื่องดื่ม (Food)', amount: foodSpent, color: '#006591', percent: 0 },
     { name: 'การเดินทาง (Transport)', amount: travelSpent, color: '#00b351', percent: 0 },
+    { name: 'ช้อปปิ้ง (Shopping)', amount: shoppingSpent, color: '#e11d48', percent: 0 },
+    { name: 'กิจกรรม (Activities)', amount: activitiesSpent, color: '#9333ea', percent: 0 },
     { name: 'อื่นๆ (Other)', amount: otherSpent, color: '#94a3b8', percent: 0 }
   ].filter(c => c.amount > 0);
   const categoryTotal = categoryData.reduce((sum, c) => sum + c.amount, 0);
@@ -165,19 +140,66 @@ export default function TripDetail({
 
   const budgetUsedPercent = Math.min(Math.round((totalSpent / trip.budget) * 100), 100);
 
-  const tripMembers = getTripMembers(trip);
+  const [settlementStates, setSettlementStates] = useState<Record<string, SettlementState>>({});
+  const [settlementsLoaded, setSettlementsLoaded] = useState(false);
+
+  // Load settlement states from API
+  useEffect(() => {
+    if (!trip.id || settlementsLoaded) return;
+    fetch(`/api/trips/${trip.id}/settlements`)
+      .then(r => r.ok ? r.json() : {})
+      .then(data => {
+        if (typeof data === 'object' && !Array.isArray(data)) {
+          setSettlementStates(data as Record<string, SettlementState>);
+        }
+        setSettlementsLoaded(true);
+      })
+      .catch(() => setSettlementsLoaded(true));
+  }, [trip.id]);
+  const baseTripMembers = getTripMembers(trip, memberProfiles);
+
+  // Step 1: compute raw settlements from full expense list
+  const rawSettlements = calculateSettlements(baseTripMembers);
+
+  // Step 2: adjust net balances by subtracting amounts already confirmed (settled)
+  // Use stable key `from-to` so it survives when new expenses change the amount
+  const tripMembers = baseTripMembers.map(m => {
+    let netBalance = m.netBalance;
+    for (const s of rawSettlements) {
+      const key = `${s.from}-${s.to}`;
+      const alreadySettled = settlementStates[key]?.settledAmount || 0;
+      if (alreadySettled > 0) {
+        if (s.from === m.name) netBalance += alreadySettled;
+        if (s.to === m.name) netBalance -= alreadySettled;
+      }
+    }
+    return { ...m, netBalance };
+  });
+
+  // Step 3: recompute settlements after removing already-settled amounts from balances
   const computedSettlements = calculateSettlements(tripMembers);
 
-  const [settlementStates, setSettlementStates] = useState<Record<string, boolean>>({});
-
-  const settlements = computedSettlements.map(s => ({
-    ...s,
-    isSettled: settlementStates[`${s.from}-${s.to}-${s.amount}`] || false
-  }));
+  // Step 4: merge state into each settlement record
+  const settlements = computedSettlements.map(s => {
+    const key = `${s.from}-${s.to}`;
+    const state = settlementStates[key];
+    const alreadySettled = state?.settledAmount || 0;
+    // If there was a prior settled amount, show it alongside current remaining amount
+    return {
+      ...s,
+      isSettled: state?.isSettled || false,
+      slipUrl: state?.slipUrl,
+      confirmedBy: state?.confirmedBy,
+      settledAmount: alreadySettled,
+    };
+  });
 
   const [activeSettleIndex, setActiveSettleIndex] = useState<number | null>(null);
   const [settleSlipAttached, setSettleSlipAttached] = useState<boolean>(false);
   const [settleSlipName, setSettleSlipName] = useState<string>('');
+  const [settleSlipPreview, setSettleSlipPreview] = useState<string>('');
+  const [settleSlipUploading, setSettleSlipUploading] = useState<boolean>(false);
+  const [settleSlipFile, setSettleSlipFile] = useState<File | null>(null);
   const [expandedMembers, setExpandedMembers] = useState<Record<string, boolean>>({});
 
   const toggleMemberExpand = (name: string) => {
@@ -188,12 +210,15 @@ export default function TripDetail({
   const [editTitle, setEditTitle] = useState(trip.title);
   const [editDestination, setEditDestination] = useState(trip.destination);
   const [editCoverUrl, setEditCoverUrl] = useState(trip.coverImgUrl);
+  const [editCoverPosition, setEditCoverPosition] = useState(parsePosition(trip.coverPosition));
   const [editDescription, setEditDescription] = useState(trip.description || '');
   const [editCountry, setEditCountry] = useState(trip.country);
   const [editBudget, setEditBudget] = useState(String(trip.budget));
   const [editStartDate, setEditStartDate] = useState('');
   const [editEndDate, setEditEndDate] = useState('');
   const editStatus = trip.status;
+  const [editMemberIds, setEditMemberIds] = useState<string[]>([]);
+  const [allProfiles, setAllProfiles] = useState<any[]>([]);
 
   return (
     <div className="space-y-8 animate-fade-in font-sans">
@@ -206,52 +231,59 @@ export default function TripDetail({
           <span className="material-symbols-outlined text-[18px]">arrow_back</span>
           <span>ย้อนกลับไปหน้ารวมทริป</span>
         </button>
-        <div className="flex items-center gap-1.5 text-slate-400 text-sm font-semibold">
-          <span className="material-symbols-outlined text-primary text-[18px]">location_on</span>
-          <span>{trip.destination}</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-slate-400 text-sm font-semibold">
+            <span className="material-symbols-outlined text-primary text-[18px]">location_on</span>
+            <span>{trip.destination}{trip.country ? `, ${trip.country}` : ''}</span>
+          </div>
+          <div className="flex items-center gap-0.5 ml-1 border-l border-slate-200 pl-2">
+            <button 
+              onClick={() => {
+                setEditTitle(trip.title);
+                setEditDestination(trip.destination);
+                setEditCoverUrl(trip.coverImgUrl);
+                setEditCoverPosition(parsePosition(trip.coverPosition));
+                setEditDescription(trip.description || '');
+                setEditCountry(trip.country);
+                setEditBudget(String(trip.budget));
+                const dateParts = trip.dates.split(' - ');
+                setEditStartDate(dateParts[0] || '');
+                setEditEndDate(dateParts[1] || dateParts[0] || '');
+                setEditMemberIds(trip.memberIds || []);
+                fetch('/api/members')
+                  .then(r => r.ok ? r.json() : [])
+                  .then(data => setAllProfiles(Array.isArray(data) ? data : []))
+                  .catch(() => {});
+                setShowEditModal(true);
+              }}
+              className="p-1 rounded-full text-slate-400 hover:text-primary hover:bg-primary-light/30 transition-all cursor-pointer"
+              title="แก้ไขทริป"
+            >
+              <span className="material-symbols-outlined text-[16px]">edit</span>
+            </button>
+            <button 
+              onClick={() => {
+                if (window.confirm('คุณต้องการลบทริปนี้จริงหรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้')) {
+                  onDeleteTrip();
+                }
+              }}
+              className="p-1 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all cursor-pointer"
+              title="ลบทริป"
+            >
+              <span className="material-symbols-outlined text-[16px]">delete</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Header Section */}
       <section className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 pb-2">
         <div className="space-y-1 flex-1">
-          <span className="text-primary font-bold text-xs uppercase tracking-widest">{trip.country}</span>
           <h2 className="text-3xl font-extrabold text-slate-800 leading-tight">{trip.title}</h2>
           <div className="flex items-center gap-2 text-slate-500 text-sm font-semibold pt-1">
             <span className="material-symbols-outlined text-[18px]">calendar_month</span>
             <span>{formatDateRange(trip.dates)}</span>
           </div>
-        </div>
-        <div className="flex items-center gap-3 w-full lg:w-auto">
-          <button 
-            onClick={() => {
-              setEditTitle(trip.title);
-              setEditDestination(trip.destination);
-              setEditCoverUrl(trip.coverImgUrl);
-              setEditDescription(trip.description || '');
-              setEditCountry(trip.country);
-              setEditBudget(String(trip.budget));
-              const dateParts = trip.dates.split(' - ');
-              setEditStartDate(dateParts[0] || '');
-              setEditEndDate(dateParts[1] || dateParts[0] || '');
-              setShowEditModal(true);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-white border-2 border-slate-200 hover:border-primary rounded-full text-xs font-bold text-slate-600 hover:text-primary transition-all cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[16px]">edit</span>
-            <span>แก้ไข</span>
-          </button>
-          <button 
-            onClick={() => {
-              if (window.confirm('คุณต้องการลบทริปนี้จริงหรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้')) {
-                onDeleteTrip();
-              }
-            }}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-white border-2 border-red-200 hover:border-red-500 hover:bg-red-50 rounded-full text-xs font-bold text-red-500 transition-all cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[16px]">delete</span>
-            <span>ลบทริป</span>
-          </button>
         </div>
 
         {/* Budget Glass Card */}
@@ -347,15 +379,6 @@ export default function TripDetail({
                 </div>
               </div>
 
-              <div className="bg-secondary-orange-light/40 border border-secondary-orange-light p-4 rounded-2xl flex items-start gap-3">
-                <span className="material-symbols-outlined text-secondary-orange text-[22px] shrink-0 font-bold mt-0.5">tips_and_updates</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-800">เคล็ดลับการออมสำหรับทริปถัดไป</h4>
-                  <p className="text-[11px] text-slate-500 font-medium leading-relaxed mt-0.5">
-                    วางแผนค่าใช้จ่ายแยกตามหมวดหมู่ล่วงหน้า เพื่อคุมงบได้ง่ายขึ้นและหารค่าใช้จ่ายโปร่งใสในกลุ่มเพื่อน
-                  </p>
-                </div>
-              </div>
             </div>
 
             <div className="sm:col-span-3 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
@@ -373,14 +396,22 @@ export default function TripDetail({
                   <div key={expense.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-3.5 flex-1 min-w-0">
                       <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${
-                        expense.category === 'Food' ? 'bg-primary-light text-primary' :
-                        expense.category === 'Travel' ? 'bg-tertiary-green-light text-tertiary-green' :
-                        'bg-secondary-orange-light text-secondary-orange'
+                        ({
+                          Food: 'bg-primary-light text-primary',
+                          Travel: 'bg-tertiary-green-light text-tertiary-green',
+                          Accommodation: 'bg-secondary-orange-light text-secondary-orange',
+                          Shopping: 'bg-pink-50 text-pink-600',
+                          Activities: 'bg-purple-50 text-purple-600',
+                        } as Record<string,string>)[expense.category] || 'bg-slate-100 text-slate-500'
                       }`}>
                         <span className="material-symbols-outlined text-[20px]">
-                          {expense.category === 'Food' ? 'restaurant' :
-                           expense.category === 'Travel' ? 'local_taxi' :
-                           'hotel'}
+                          {({
+                            Food: 'restaurant',
+                            Travel: 'local_taxi',
+                            Accommodation: 'hotel',
+                            Shopping: 'shopping_bag',
+                            Activities: 'attractions',
+                          } as Record<string,string>)[expense.category] || 'category'}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -392,7 +423,7 @@ export default function TripDetail({
                           <span className="hidden sm:inline text-slate-300">|</span>
                           <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">
                             {expense.customShares 
-                              ? `หารไม่เท่า: ${Object.entries(expense.customShares).map(([name, val]) => `${name} (฿${val.toLocaleString()})`).join(', ')}`
+                              ? `หารไม่เท่า: ${Object.entries(expense.customShares).map(([key, val]) => `${profileNameById(key)} (฿${val.toLocaleString()})`).join(', ')}`
                               : `หารเท่ากัน: ${expense.splitWith.join(', ')}`
                             }
                           </span>
@@ -414,10 +445,11 @@ export default function TripDetail({
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
               alt={trip.destination} 
               src={trip.coverImgUrl}
+              style={{ objectPosition: trip.coverPosition || '50% 50%' }}
             />
             <div className="absolute bottom-0 left-0 p-6 z-20 text-white space-y-2">
               <span className="text-[10px] font-extrabold bg-primary/80 backdrop-blur-md px-3 py-1 rounded-full inline-block">จุดหมายปัจจุบัน</span>
-              <h3 className="text-xl font-extrabold leading-tight">{trip.destination}</h3>
+              <h3 className="text-xl font-extrabold leading-tight">{trip.destination}{trip.country ? `, ${trip.country}` : ''}</h3>
               {trip.description && (
                 <p className="text-xs text-white/70 font-medium whitespace-pre-line">{trip.description}</p>
               )}
@@ -448,14 +480,22 @@ export default function TripDetail({
                 <div key={expense.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 transition-colors">
                   <div className="flex items-center gap-3.5 flex-1 min-w-0">
                     <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${
-                      expense.category === 'Food' ? 'bg-primary-light text-primary' :
-                      expense.category === 'Travel' ? 'bg-tertiary-green-light text-tertiary-green' :
-                      'bg-secondary-orange-light text-secondary-orange'
+                      ({
+                        Food: 'bg-primary-light text-primary',
+                        Travel: 'bg-tertiary-green-light text-tertiary-green',
+                        Accommodation: 'bg-secondary-orange-light text-secondary-orange',
+                        Shopping: 'bg-pink-50 text-pink-600',
+                        Activities: 'bg-purple-50 text-purple-600',
+                      } as Record<string,string>)[expense.category] || 'bg-slate-100 text-slate-500'
                     }`}>
                       <span className="material-symbols-outlined text-[20px]">
-                        {expense.category === 'Food' ? 'restaurant' :
-                         expense.category === 'Travel' ? 'local_taxi' :
-                         'hotel'}
+                        {({
+                          Food: 'restaurant',
+                          Travel: 'local_taxi',
+                          Accommodation: 'hotel',
+                          Shopping: 'shopping_bag',
+                          Activities: 'attractions',
+                        } as Record<string,string>)[expense.category] || 'category'}
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -467,7 +507,7 @@ export default function TripDetail({
                         <span className="hidden sm:inline text-slate-300">|</span>
                         <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">
                           {expense.customShares 
-                            ? `หารไม่เท่า: ${Object.entries(expense.customShares).map(([name, val]) => `${name} (฿${val.toLocaleString()})`).join(', ')}`
+                            ? `หารไม่เท่า: ${Object.entries(expense.customShares).map(([key, val]) => `${profileNameById(key)} (฿${val.toLocaleString()})`).join(', ')}`
                             : `หารเท่ากัน: ${expense.splitWith.join(', ')}`
                           }
                         </span>
@@ -478,13 +518,24 @@ export default function TripDetail({
                     <div className="flex items-center gap-3">
                       <p className="text-base sm:text-lg font-extrabold text-slate-800">฿{expense.amount.toLocaleString()}</p>
                     </div>
-                    <button 
-                      onClick={() => onDeleteExpense(expense.id)}
-                      className="p-2 hover:bg-red-50 text-red-500 rounded-full transition-colors cursor-pointer shrink-0"
-                      title="ลบรายการ"
-                    >
-                      <span className="material-symbols-outlined text-[20px]">delete</span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {onEditExpense && (
+                        <button 
+                          onClick={() => onEditExpense(expense.id)}
+                          className="p-2 hover:bg-primary-light text-primary rounded-full transition-colors cursor-pointer shrink-0"
+                          title="แก้ไขรายการ"
+                        >
+                          <span className="material-symbols-outlined text-[20px]">edit</span>
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => onDeleteExpense(expense.id)}
+                        className="p-2 hover:bg-red-50 text-red-500 rounded-full transition-colors cursor-pointer shrink-0"
+                        title="ลบรายการ"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">delete</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -530,6 +581,13 @@ export default function TripDetail({
                       <p className={`text-base font-bold ${settlement.isSettled ? 'text-slate-400 line-through font-medium' : 'text-slate-800'}`}>
                         {settlement.from} <span className="text-slate-400 font-normal">จ่ายคืนให้</span> {settlement.to}
                       </p>
+                      {/* Show "partially settled" info when there's a prior payment but new expenses created a new balance */}
+                      {!settlement.isSettled && settlement.settledAmount > 0 && (
+                        <p className="text-[11px] text-amber-600 font-bold mt-0.5 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[12px]">history</span>
+                          ชำระไปแล้ว ฿{settlement.settledAmount.toLocaleString()} · ยอดที่ยังค้าง ฿{settlement.amount.toLocaleString()}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="text-right self-stretch sm:self-auto flex sm:flex-col justify-between items-center sm:items-end border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-50">
@@ -537,11 +595,63 @@ export default function TripDetail({
                       ฿{settlement.amount.toLocaleString()}
                     </p>
                     {settlement.isSettled ? (
-                      <span className="text-[10px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 mt-1">
-                        <span className="material-symbols-outlined text-[12px] font-bold">check_circle</span>
-                        <span>โอนแล้ว</span>
-                      </span>
-                    ) : (
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-[10px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black flex items-center gap-0.5">
+                          <span className="material-symbols-outlined text-[12px] font-bold">check_circle</span>
+                          <span>โอนแล้ว</span>
+                        </span>
+                        {settlement.slipUrl && (
+                          <button
+                            onClick={() => setSelectedSlip(settlement.slipUrl!)}
+                            className="text-[10px] bg-primary-light text-primary px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 hover:bg-primary hover:text-white transition-colors cursor-pointer"
+                          >
+                            <span className="material-symbols-outlined text-[12px]">image</span>
+                            <span>ดูสลิป</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : settlement.slipUrl ? (
+                      <div className="flex flex-col items-end gap-1 mt-1">
+                        <span className="text-[10px] bg-secondary-orange-light text-secondary-orange px-2 py-0.5 rounded-full font-black flex items-center gap-0.5">
+                          <span className="material-symbols-outlined text-[12px] font-bold">hourglass</span>
+                          <span>รอยืนยัน</span>
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setSelectedSlip(settlement.slipUrl!)}
+                            className="text-[10px] bg-primary-light text-primary px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 hover:bg-primary hover:text-white transition-colors cursor-pointer"
+                          >
+                            <span className="material-symbols-outlined text-[12px]">image</span>
+                            <span>ดูสลิป</span>
+                          </button>
+                          {currentUserName === settlement.to && (
+                            <button
+                              onClick={async () => {
+                                const s = settlements.find(x => x.from === settlement.from && x.to === settlement.to);
+                                if (!s) return;
+                                if (!window.confirm(`ยืนยันว่าได้รับเงิน ฿${s.amount.toLocaleString()} จาก ${s.from} เรียบร้อยแล้ว?`)) return;
+                                const key = `${s.from}-${s.to}`;
+                                const prevSettled = settlementStates[key]?.settledAmount || 0;
+                                const newTotal = prevSettled + s.amount;
+                                setSettlementStates(prev => ({
+                                  ...prev,
+                                  [key]: { ...prev[key], isSettled: true, confirmedBy: currentUserName, settledAmount: newTotal }
+                                }));
+                                await fetch(`/api/trips/${trip.id}/settlements`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ settlement_key: key, status: 'confirmed', confirmed_by: currentUserName, settled_amount: s.amount }),
+                                }).catch(() => {});
+                              }}
+                              className="text-[10px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 hover:bg-tertiary-green hover:text-white transition-colors cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                              <span>ยืนยัน</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : settlement.slipUrl ? null : (
                       <button 
                         onClick={() => setActiveSettleIndex(index)}
                         className="bg-secondary-orange hover:bg-secondary-orange-hover text-white font-extrabold text-[11px] px-3 py-1 rounded-full shadow-sm cursor-pointer flex items-center gap-0.5 transition-all hover:scale-[1.02] active:scale-95 mt-1"
@@ -580,15 +690,23 @@ export default function TripDetail({
             </div>
 
             <div className="space-y-3">
-              {getTripMembers(trip).map((member, idx) => {
+              {tripMembers.map((member, idx) => {
                 const isExpanded = !!expandedMembers[member.name];
                 
                 const paidExpenses = trip.expenses.filter(e => e.paidBy === member.name);
                 
                 const sharedExpenses = trip.expenses.filter(e => e.splitWith.includes(member.name)).map(e => {
                   let shareAmount = 0;
-                  if (e.customShares && e.customShares[member.name] !== undefined) {
-                    shareAmount = e.customShares[member.name];
+                  if (e.customShares) {
+                    const id = member.id;
+                    if (id && e.customShares[id] !== undefined) {
+                      shareAmount = e.customShares[id];
+                    } else if (e.customShares[member.name] !== undefined) {
+                      shareAmount = e.customShares[member.name];
+                    } else {
+                      const shareCount = e.splitWith.length || 1;
+                      shareAmount = e.amount / shareCount;
+                    }
                   } else {
                     const shareCount = e.splitWith.length || 1;
                     shareAmount = e.amount / shareCount;
@@ -659,7 +777,13 @@ export default function TripDetail({
                                   <div key={index} className="flex justify-between items-center bg-slate-50/50 p-2 rounded-lg border border-slate-100">
                                     <div className="space-y-0.5">
                                       <p className="font-extrabold text-slate-700">{e.title}</p>
-                                      <p className="text-[10px] text-slate-400 font-bold">{e.date} • {e.category === 'Food' ? 'อาหาร' : e.category === 'Travel' ? 'เดินทาง' : e.category === 'Accommodation' ? 'ที่พัก' : 'อื่นๆ'}</p>
+                                      <p className="text-[10px] text-slate-400 font-bold">{e.date} • {({
+    Food: 'อาหาร',
+    Travel: 'เดินทาง',
+    Accommodation: 'ที่พัก',
+    Shopping: 'ช้อปปิ้ง',
+    Activities: 'กิจกรรม',
+  } as Record<string,string>)[e.category] || 'อื่นๆ'}</p>
                                     </div>
                                     <p className="font-extrabold text-slate-800">฿{e.amount.toLocaleString()}</p>
                                   </div>
@@ -710,7 +834,7 @@ export default function TripDetail({
         <div className="space-y-6 animate-fade-in">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
             <div>
-              <h3 className="text-lg font-extrabold text-slate-800">สมาชิกเพื่อนร่วมทริป ({getTripMembers(trip).length} คน)</h3>
+              <h3 className="text-lg font-extrabold text-slate-800">สมาชิกเพื่อนร่วมทริป ({tripMembers.length} คน)</h3>
               <p className="text-xs text-slate-400 font-semibold mt-0.5">
                 รายชื่อสมาชิกทั้งหมดที่ร่วมแชร์และเคลียร์ยอดค่าใช้จ่ายในทริปนี้
               </p>
@@ -719,7 +843,7 @@ export default function TripDetail({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {getTripMembers(trip).map((member, idx) => (
+            {tripMembers.map((member, idx) => (
               <div 
                 key={idx}
                 className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between gap-6"
@@ -769,12 +893,15 @@ export default function TripDetail({
         </div>
       )}
 
-      {/* Slip Preview Simulated Lightbox Modal */}
+      {/* Slip Preview Modal */}
       {selectedSlip && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-[#0b1c30]/50 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full text-center space-y-4">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full space-y-4">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-slate-800">หลักฐานการจ่ายเงิน</h3>
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">image</span>
+                <span>หลักฐานการจ่ายเงิน</span>
+              </h3>
               <button 
                 onClick={() => setSelectedSlip(null)}
                 className="material-symbols-outlined text-slate-400 hover:text-slate-600 cursor-pointer"
@@ -782,44 +909,36 @@ export default function TripDetail({
                 close
               </button>
             </div>
-            <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl space-y-4 text-left">
-              <div className="flex items-center gap-2 text-primary">
-                <span className="material-symbols-outlined">verified</span>
-                <span className="text-xs font-bold uppercase tracking-wider">E-Slip Verified</span>
-              </div>
-              <p className="text-xs text-slate-400 font-semibold">รายการ: {selectedSlip}</p>
-              <div className="border-t border-dashed border-slate-200 pt-3 space-y-1">
-                <div className="flex justify-between text-xs font-medium text-slate-500">
-                  <span>ผู้โอน:</span>
-                  <span className="font-bold text-slate-700">
-                    {(() => {
-                      const foundSettle = settlements.find(s => `${s.from} จ่ายคืนให้ ${s.to}` === selectedSlip || `${s.from}-${s.to}-${s.amount}` === selectedSlip);
-                      return foundSettle ? foundSettle.from : '';
-                    })()}
-                  </span>
+            {(() => {
+              const foundSettle = settlements.find(s => s.slipUrl === selectedSlip);
+              const isImage = selectedSlip.startsWith('data:') || selectedSlip.startsWith('http') || selectedSlip.startsWith('/');
+              return (
+                <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl space-y-3">
+                  {isImage && (
+                    <img src={selectedSlip} alt="สลิป" className="w-full rounded-xl object-contain max-h-[60vh]" />
+                  )}
+                  {foundSettle && (
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">ผู้โอน:</span>
+                        <span className="font-bold text-slate-700">{foundSettle.from}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">ผู้รับ:</span>
+                        <span className="font-bold text-slate-700">{foundSettle.to}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-dashed border-slate-200 pt-1.5">
+                        <span className="text-slate-600 font-bold">จำนวนเงิน:</span>
+                        <span className="font-extrabold text-secondary-orange">฿{foundSettle.amount.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
+                  {!isImage && !foundSettle && (
+                    <p className="text-xs text-slate-400 text-center py-4">ไม่พบข้อมูลสลิป</p>
+                  )}
                 </div>
-                <div className="flex justify-between text-xs font-medium text-slate-500">
-                  <span>เวลาโอน:</span>
-                  <span className="font-semibold text-slate-700">12:34 น. (วันนี้)</span>
-                </div>
-                <div className="flex justify-between text-xs font-medium text-slate-500">
-                  <span>สถานะ:</span>
-                  <span className="font-bold text-tertiary-green">สำเร็จ</span>
-                </div>
-              </div>
-              <div className="border-t border-dashed border-slate-200 pt-3 flex justify-between items-center">
-                <span className="text-sm font-bold text-slate-700">จำนวนเงิน:</span>
-                <span className="text-lg font-extrabold text-primary">
-                  ฿{(() => {
-                    const foundExp = trip.expenses.find(e => e.title === selectedSlip);
-                    if (foundExp) return foundExp.amount.toLocaleString();
-                    const foundSettle = settlements.find(s => `${s.from} จ่ายคืนให้ ${s.to}` === selectedSlip || `${s.from}-${s.to}-${s.amount}` === selectedSlip);
-                    if (foundSettle) return foundSettle.amount.toLocaleString();
-                    return '1,200';
-                  })()}
-                </span>
-              </div>
-            </div>
+              );
+            })()}
             <button 
               onClick={() => setSelectedSlip(null)}
               className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-2.5 rounded-full cursor-pointer transition-all active:scale-95"
@@ -879,29 +998,38 @@ export default function TripDetail({
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-500 ml-1">แนบสลิปโอนเงิน (สลิป)</label>
-              <label className="border-2 border-dashed border-slate-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-primary hover:bg-primary-light/10 transition-all cursor-pointer">
+              <label className="border-2 border-dashed border-slate-200 rounded-2xl p-3 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-primary hover:bg-primary-light/10 transition-all cursor-pointer">
                 <input 
                   type="file" 
                   accept="image/*"
                   className="hidden" 
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
-                      setSettleSlipName(e.target.files[0].name);
+                      const file = e.target.files[0];
+                      setSettleSlipName(file.name);
                       setSettleSlipAttached(true);
+                      setSettleSlipFile(file);
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        setSettleSlipPreview(ev.target?.result as string);
+                      };
+                      reader.readAsDataURL(file);
                     }
                   }}
                 />
-                <span className="material-symbols-outlined text-3xl text-slate-400">cloud_upload</span>
-                {settleSlipAttached ? (
-                  <div className="text-center">
-                    <p className="text-xs font-bold text-tertiary-green">✓ แนบสลิปเรียบร้อยแล้ว</p>
-                    <p className="text-[10px] text-slate-500 truncate max-w-[150px]">{settleSlipName}</p>
+                {settleSlipPreview ? (
+                  <div className="relative w-full">
+                    <img src={settleSlipPreview} alt="สลิป" className="max-h-40 rounded-xl object-contain mx-auto" />
+                    <p className="text-[10px] text-tertiary-green font-bold text-center mt-1">✓ แนบสลิปเรียบร้อยแล้ว</p>
                   </div>
                 ) : (
-                  <div className="text-center">
-                    <p className="text-xs font-bold text-slate-600">คลิกเพื่ออัปโหลดสลิป</p>
-                    <p className="text-[10px] text-slate-400">รองรับไฟล์ JPG, PNG หรือภาพถ่าย</p>
-                  </div>
+                  <>
+                    <span className="material-symbols-outlined text-3xl text-slate-400">cloud_upload</span>
+                    <div className="text-center">
+                      <p className="text-xs font-bold text-slate-600">คลิกเพื่ออัปโหลดสลิป</p>
+                      <p className="text-[10px] text-slate-400">รองรับไฟล์ JPG, PNG หรือภาพถ่าย</p>
+                    </div>
+                  </>
                 )}
               </label>
             </div>
@@ -912,31 +1040,55 @@ export default function TripDetail({
                   setActiveSettleIndex(null);
                   setSettleSlipAttached(false);
                   setSettleSlipName('');
+                  setSettleSlipPreview('');
+                  setSettleSlipFile(null);
                 }}
                 className="flex-1 py-2 bg-slate-100 text-slate-500 font-bold text-xs rounded-full hover:bg-slate-200 transition-all cursor-pointer text-center"
               >
                 ยกเลิก
               </button>
               <button 
-                onClick={() => {
+                onClick={async () => {
                   if (!settleSlipAttached) {
                     alert('กรุณาแนบสลิปหลักฐานการโอนเพื่อยืนยัน');
                     return;
                   }
                   const s = settlements[activeSettleIndex!];
+                  let slipUrl = '';
+                  if (settleSlipFile) {
+                    setSettleSlipUploading(true);
+                    try {
+                      const result = await uploadImage(settleSlipFile, 'slips');
+                      slipUrl = result.url;
+                    } catch (err) {
+                      alert('อัปโหลดสลิปไม่สำเร็จ กรุณาลองอีกครั้ง');
+                      setSettleSlipUploading(false);
+                      return;
+                    }
+                  }
+                  const key = `${s.from}-${s.to}`;
                   setSettlementStates(prev => ({
                     ...prev,
-                    [`${s.from}-${s.to}-${s.amount}`]: true
+                    [key]: { ...prev[key], isSettled: false, slipUrl }
                   }));
-                  alert(`โอนเงินคืนจาก ${s.from} ไปยัง ${s.to} สำเร็จ!`);
+                  await fetch(`/api/trips/${trip.id}/settlements`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ settlement_key: key, status: 'pending', slip_url: slipUrl || null, settled_amount: s.amount }),
+                  }).catch(() => {});
+                  alert(`แนบสลิปจาก ${s.from} ไปยัง ${s.to} เรียบร้อย! รอให้ ${s.to} ยืนยันการรับเงิน`);
                   setActiveSettleIndex(null);
                   setSettleSlipAttached(false);
                   setSettleSlipName('');
+                  setSettleSlipPreview('');
+                  setSettleSlipFile(null);
+                  setSettleSlipUploading(false);
                 }}
-                className="flex-1 py-2 bg-secondary-orange hover:bg-secondary-orange-hover text-white font-bold text-xs rounded-full transition-all cursor-pointer shadow-sm flex items-center justify-center gap-0.5"
+                className="flex-1 py-2 bg-secondary-orange hover:bg-secondary-orange-hover text-white font-bold text-xs rounded-full transition-all cursor-pointer shadow-sm flex items-center justify-center gap-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={settleSlipUploading}
               >
                 <span className="material-symbols-outlined text-sm">check_circle</span>
-                <span>ยืนยันการโอน</span>
+                <span>{settleSlipUploading ? 'กำลังอัปโหลด...' : 'ยืนยันการโอน'}</span>
               </button>
             </div>
           </div>
@@ -1005,7 +1157,7 @@ export default function TripDetail({
                       const file = e.target.files?.[0];
                       if (!file) return;
                       try {
-                        const result = await uploadImage(file);
+                        const result = await uploadImage(file, 'trips');
                         setEditCoverUrl(result.url);
                       } catch (err: any) {
                         alert(err.message || 'อัพโหลดไม่สำเร็จ');
@@ -1027,12 +1179,50 @@ export default function TripDetail({
                 </div>
               </div>
               {editCoverUrl && (
-                <img src={editCoverUrl} alt="Preview" className="w-full h-20 object-cover rounded-xl border border-slate-100" />
+                <div className="space-y-1">
+                  <ImagePositionPicker
+                    src={editCoverUrl}
+                    position={editCoverPosition}
+                    onPositionChange={setEditCoverPosition}
+                    aspect={16 / 9}
+                  />
+                  <p className="text-[9px] text-slate-400 font-semibold px-1">ลากรูปเพื่อจัดตำแหน่งรูปหน้าปก (หรือแตะปุ่มกากบาทเพื่อจัดกึ่งกลาง)</p>
+                </div>
               )}
               <div className="space-y-0.5">
                 <label className="text-[10px] font-bold text-slate-400">คำอธิบาย</label>
                 <textarea value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={2}
                   className="w-full bg-slate-50 border-2 border-slate-200 focus:border-primary focus:bg-white rounded-xl px-3 py-2 text-xs outline-none resize-none" placeholder="รายละเอียดเกี่ยวกับทริป..." />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400">เพื่อนร่วมทริป ({editMemberIds.length} คน)</label>
+                {allProfiles.length === 0 ? (
+                  <p className="text-[10px] text-slate-400">กำลังโหลด...</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto">
+                    {allProfiles.filter((p: any) => p.status === 'approved').map((p: any) => {
+                      const selected = editMemberIds.includes(p.id);
+                      return (
+                        <label
+                          key={p.id}
+                          onClick={() => setEditMemberIds(prev =>
+                            prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id]
+                          )}
+                          className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-colors ${
+                            selected ? 'bg-primary-light border-primary' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 bg-slate-200">
+                            <img className="w-full h-full object-cover" alt={p.name} src={p.avatar_url || ''} />
+                          </div>
+                          <span className={`text-[10px] font-bold truncate ${selected ? 'text-primary' : 'text-slate-600'}`}>
+                            {p.name}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1040,7 +1230,12 @@ export default function TripDetail({
               <button onClick={() => setShowEditModal(false)}
                 className="flex-1 py-2 bg-slate-100 text-slate-500 font-bold text-xs rounded-full hover:bg-slate-200 transition-all cursor-pointer">ยกเลิก</button>
               <button onClick={() => {
-                  onUpdateTrip({ title: editTitle, destination: editDestination, coverImgUrl: editCoverUrl, description: editDescription, country: editCountry, budget: parseFloat(editBudget) || trip.budget, dates: `${editStartDate} - ${editEndDate}` });
+                  onUpdateTrip({ title: editTitle, destination: editDestination, coverImgUrl: editCoverUrl, coverPosition: positionToCss(editCoverPosition), description: editDescription, country: editCountry, budget: parseFloat(editBudget) || trip.budget, dates: `${editStartDate} - ${editEndDate}` });
+                  const oldIds = trip.memberIds || [];
+                  const newIds = editMemberIds;
+                  if (JSON.stringify(oldIds) !== JSON.stringify(newIds)) {
+                    onUpdateTripMembers(newIds);
+                  }
                   setShowEditModal(false);
                 }}
                 className="flex-1 py-2 bg-primary hover:bg-primary-hover text-white font-bold text-xs rounded-full transition-all cursor-pointer shadow-sm flex items-center justify-center gap-0.5">
