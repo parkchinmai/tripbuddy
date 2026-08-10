@@ -79,6 +79,7 @@ export default function NotesTab({ tripId, currentUserName, currentUserPhone, me
   const [editText, setEditText] = useState('');
   const [editImages, setEditImages] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [diag, setDiag] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -87,7 +88,10 @@ export default function NotesTab({ tripId, currentUserName, currentUserPhone, me
       const res = await fetch(`/api/trips/${tripId}/notes?user=${encodeURIComponent(currentUserPhone)}`);
       const data = await res.json();
       if (res.ok && Array.isArray(data)) setNotes(data);
-    } catch {}
+      else setDiag(`GET ${res.status} ${JSON.stringify(data)}`);
+    } catch (e) {
+      setDiag(`GET threw ${String(e)}`);
+    }
     setLoading(false);
   };
 
@@ -167,12 +171,13 @@ export default function NotesTab({ tripId, currentUserName, currentUserPhone, me
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text.trim(), images }),
       });
-      if (!res.ok) throw new Error('post failed');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setText('');
       setImages([]);
       await loadNotes();
-    } catch {
-      alert('โพสต์โน้ตไม่สำเร็จ กรุณาลองอีกครั้ง');
+    } catch (e) {
+      const err = String((e as any)?.message || e);
+      alert(`โพสต์โน้ตไม่สำเร็จ (${err})`);
     }
     setPosting(false);
   };
@@ -296,6 +301,12 @@ export default function NotesTab({ tripId, currentUserName, currentUserPhone, me
           </button>
         </div>
       </div>
+
+      {diag && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl px-3 py-2 text-[11px] text-red-600 font-semibold break-all">
+          DIAG: {diag}
+        </div>
+      )}
 
       {/* Notes list */}
       {loading ? (
