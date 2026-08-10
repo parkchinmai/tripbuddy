@@ -622,13 +622,10 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
     ).bind(tripId, settlement_key).first();
 
     if (existing) {
-      // When confirming, accumulate settled_amount (add newly confirmed amount to existing total)
-      let newSettledAmount = (existing as any).settled_amount || 0;
-      if (settled_amount != null) {
-        newSettledAmount = status === 'confirmed'
-          ? newSettledAmount + settled_amount  // accumulate on confirm
-          : newSettledAmount;                  // keep existing when just uploading slip
-      }
+      // Client sends the exact total amount transferred for this pair. The frontend
+      // computes the cumulative total (previous transfers + the new one), so here we
+      // just store what it sends rather than accumulating ourselves.
+      const newSettledAmount = settled_amount != null ? settled_amount : ((existing as any).settled_amount || 0);
       await db.prepare(
         `UPDATE settlements SET status = ?, slip_url = COALESCE(?, slip_url), confirmed_by = COALESCE(?, confirmed_by), settled_amount = ?, updated_at = datetime('now', '+7 hours')
          WHERE trip_id = ? AND settlement_key = ?`
