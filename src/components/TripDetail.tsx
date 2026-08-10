@@ -266,18 +266,22 @@ export default function TripDetail({
     return { ...m, netBalance };
   });
 
-  // Game-style leaderboard: total amount each member actually paid (spent) in this trip,
-  // including collected expenses — this is "who fronted the most money", not settlement math.
-  const spenderRanking = tripMembers
-    .map(m => ({
-      ...m,
-      spent: trip.expenses
-        .filter(e => e.paidBy === m.name || (m.id && (e.paidBy === m.id || e.paidById === m.id)))
-        .reduce((sum, e) => sum + e.amount, 0),
-    }))
-    .filter(m => m.spent > 0)
-    .sort((a, b) => b.spent - a.spent);
-  const maxSpent = spenderRanking.length > 0 ? spenderRanking[0].spent : 0;
+  // Total expense share per member (all expenses, including collected ones) — i.e. how much
+  // of the trip's spending belongs to each person (e.g. ค่าที่พัก 1,690/คน + รายการที่หารเฉพาะบางคน).
+  const memberExpenseTotals = tripMembers.map(m => {
+    let totalExpense = 0;
+    trip.expenses.forEach(e => {
+      const inSplit = e.splitWith.includes(m.name) || (m.id && e.splitWithIds?.includes(m.id));
+      if (!inSplit) return;
+      if (e.customShares) {
+        const v = m.id && e.customShares[m.id] !== undefined ? e.customShares[m.id] : e.customShares[m.name];
+        if (v !== undefined) { totalExpense += v; return; }
+      }
+      const shareCount = e.splitWith.length || 1;
+      totalExpense += e.amount / shareCount;
+    });
+    return { ...m, totalExpense };
+  });
 
   // Step 3: recompute settlements after removing already-settled amounts from balances
   const computedSettlements = calculateSettlements(tripMembers);
@@ -640,15 +644,15 @@ export default function TripDetail({
           </div>
         </div>
 
-        {/* GAME STYLE: leaderboard of total spent per member */}
+        {/* Total expense per member */}
         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-fade-in">
           <div className="px-6 sm:px-7 py-5 border-b border-slate-100 flex items-start justify-between gap-4 bg-slate-50/50">
             <div>
               <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
-                <span className="material-symbols-outlined text-amber-500 text-[22px] font-bold">emoji_events</span>
+                <span className="material-symbols-outlined text-amber-500 text-[22px] font-bold">savings</span>
                 ยอดค่าใช้จ่ายของแต่ละคน
               </h3>
-              <p className="text-xs text-slate-400 font-semibold mt-0.5">จัดอันดับใครควักเงินสปอนเซอร์มากที่สุดในทริปนี้</p>
+              <p className="text-xs text-slate-400 font-semibold mt-0.5">ส่วนแบ่งค่าใช้จ่ายรวมของแต่ละคนในทริปนี้</p>
             </div>
             <div className="text-right shrink-0">
               <p className="text-[10px] text-slate-400 font-bold uppercase">ยอดรวมทั้งทริป</p>
@@ -657,64 +661,26 @@ export default function TripDetail({
           </div>
 
           <div className="p-5 sm:p-6">
-            {spenderRanking.length === 0 ? (
+            {trip.expenses.length === 0 ? (
               <div className="rounded-2xl bg-slate-50 border border-slate-100 p-8 text-center">
                 <span className="material-symbols-outlined text-slate-300 text-4xl mb-2 inline-block">savings</span>
-                <p className="text-slate-500 font-bold text-sm">ยังไม่มีใครเสียเงินในทริปนี้</p>
-                <p className="text-slate-400 font-semibold text-xs mt-1">เพิ่มค่าใช้จ่ายใบแรกเพื่อเริ่มจัดอันดับ!</p>
+                <p className="text-slate-500 font-bold text-sm">ยังไม่มีค่าใช้จ่ายในทริปนี้</p>
+                <p className="text-slate-400 font-semibold text-xs mt-1">เพิ่มค่าใช้จ่ายใบแรกเพื่อดูยอดของแต่ละคน</p>
               </div>
             ) : (
-              <div className="space-y-2.5">
-                {spenderRanking.map((m, i) => {
-                  const isTop3 = i < 3;
-                  const pct = maxSpent ? Math.round((m.spent / maxSpent) * 100) : 0;
-                  const titles = ['จ้าวสปอนเซอร์', 'รองจ้าวสปอนเซอร์', 'นักสปอนเซอร์มือทอง', 'ผู้สนับสนุนหัวใจนักลงทุน'];
-                  const rankBadge = [
-                    'bg-gradient-to-br from-amber-300 to-yellow-500 text-amber-950',
-                    'bg-gradient-to-br from-slate-200 to-slate-400 text-slate-700',
-                    'bg-gradient-to-br from-orange-300 to-amber-700 text-amber-950',
-                    'bg-slate-100 text-slate-400',
-                  ];
-                  const barColor = [
-                    'bg-gradient-to-r from-amber-400 to-yellow-500',
-                    'bg-gradient-to-r from-slate-300 to-slate-400',
-                    'bg-gradient-to-r from-orange-400 to-amber-500',
-                    'bg-slate-300',
-                  ];
-                  const titleColor = isTop3 ? 'text-amber-600' : 'text-slate-400';
-                  const crown = i === 0;
-                  return (
-                    <div key={i} className={`flex items-center gap-3 rounded-2xl p-3 border transition-all ${
-                      isTop3 ? 'bg-amber-50/40 border-amber-100' : 'bg-slate-50/40 border-slate-100'
-                    }`}>
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0 shadow ${rankBadge[i] || rankBadge[3]}`}>
-                        {i + 1}
-                      </div>
-                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                        <div className={`relative w-9 h-9 rounded-full overflow-hidden shrink-0 border-2 ${isTop3 ? 'border-amber-300' : 'border-slate-200'}`}>
-                          <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-extrabold text-slate-800 truncate flex items-center gap-1">
-                            {m.name}
-                            {crown && <span className="material-symbols-outlined text-amber-500 text-[15px] font-bold">crown</span>}
-                          </p>
-                          <p className={`text-[10px] font-black ${titleColor}`}>{titles[i] || titles[3]}</p>
-                        </div>
-                      </div>
-                      <div className="hidden md:block w-32 lg:w-40">
-                        <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-700 ease-out ${barColor[i] || barColor[3]}`} style={{ width: `${Math.max(pct, 4)}%` }}></div>
-                        </div>
-                        <p className="text-[9px] text-slate-400 font-bold mt-1 text-right">{pct}%</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-black text-slate-800">฿{m.spent.toLocaleString()}</p>
-                        <p className="text-[9px] text-slate-400 font-bold">เสียไปในทริป</p>
-                      </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {memberExpenseTotals.map((m, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-2xl p-3 border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
+                    <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 border border-slate-200">
+                      <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
                     </div>
-                  );
-                })}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-extrabold text-slate-800 truncate">{m.name}</p>
+                      <p className="text-[10px] text-slate-400 font-bold">ส่วนแบ่งค่าใช้จ่ายในทริป</p>
+                    </div>
+                    <p className="text-base font-black text-slate-800 shrink-0">฿{m.totalExpense.toLocaleString()}</p>
+                  </div>
+                ))}
               </div>
             )}
           </div>
