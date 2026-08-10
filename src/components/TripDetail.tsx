@@ -1331,6 +1331,16 @@ export default function TripDetail({
                   }
                   const key = `${s.from}-${s.to}`;
                   const paidAmount = (settlements[activeSettleIndex!].settledAmount || 0) + s.amount;
+                  // Close the modal and reset its state BEFORE the settlement state changes.
+                  // The pair becomes fully settled on attach, so it leaves the `settlements`
+                  // array; keeping a stale activeSettleIndex for even one render makes the
+                  // modal dereference an undefined entry and crash the whole screen.
+                  setActiveSettleIndex(null);
+                  setSettleSlipAttached(false);
+                  setSettleSlipName('');
+                  setSettleSlipPreview('');
+                  setSettleSlipFile(null);
+                  setSettleSlipUploading(false);
                   setSettlementStates(prev => ({
                     ...prev,
                     [key]: { ...prev[key], isSettled: true, slipUrl, confirmedBy: currentUserName, settledAmount: paidAmount }
@@ -1341,12 +1351,6 @@ export default function TripDetail({
                     body: JSON.stringify({ settlement_key: key, status: 'confirmed', slip_url: slipUrl || null, confirmed_by: currentUserName, settled_amount: paidAmount }),
                   }).catch(() => {});
                   alert(`แนบสลิปจาก ${s.from} ไปยัง ${s.to} เรียบร้อยแล้ว`);
-                  setActiveSettleIndex(null);
-                  setSettleSlipAttached(false);
-                  setSettleSlipName('');
-                  setSettleSlipPreview('');
-                  setSettleSlipFile(null);
-                  setSettleSlipUploading(false);
                 }}
                 className="flex-1 py-2 bg-secondary-orange hover:bg-secondary-orange-hover text-white font-bold text-xs rounded-full transition-all cursor-pointer shadow-sm flex items-center justify-center gap-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={settleSlipUploading}
