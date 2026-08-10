@@ -232,6 +232,12 @@ export default function TripDetail({
     // that money was transferred and must not influence the calculation until the
     // creditor confirms receipt.
     if (!state.isSettled) return;
+    // A confirmed payment only applies while the pair still carries an open (uncollected)
+    // debt. When the underlying expense was marked as collected it was excluded from the
+    // balances, so applying the settlement here would create a phantom reverse credit
+    // (e.g. the payer "owing" money back to the creditor).
+    const rawPair = rawSettlements.find(r => r.from === fromName && r.to === toName);
+    if (!rawPair || rawPair.amount <= 0) return;
     let paidVal = state.settledAmount || 0;
     if (paidVal === 0) {
       // Fallback: old record was settled but settledAmount wasn't set.
@@ -239,10 +245,11 @@ export default function TripDetail({
       // time) over the current recomputed raw settlement, which may have grown if
       // new expenses were added after the payment was confirmed.
       const keyAmount = parseFloat(parts[2]);
-      const rawMatch = rawSettlements.find(r => r.from === fromName && r.to === toName);
-      paidVal = Number.isFinite(keyAmount) && keyAmount > 0 ? keyAmount : (rawMatch ? rawMatch.amount : 0);
+      paidVal = Number.isFinite(keyAmount) && keyAmount > 0 ? keyAmount : rawPair.amount;
     }
     if (paidVal <= 0) return;
+    // Never credit more than the pair's current open debt.
+    if (paidVal > rawPair.amount) paidVal = rawPair.amount;
     const pairKey = `${fromName}\u0000${toName}`;
     const existing = transferredByPair.get(pairKey);
     if (!existing || paidVal > existing.amount) {
