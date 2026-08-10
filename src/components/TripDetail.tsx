@@ -269,18 +269,24 @@ export default function TripDetail({
   // Total expense share per member (all expenses, including collected ones) — i.e. how much
   // of the trip's spending belongs to each person (e.g. ค่าที่พัก 1,690/คน + รายการที่หารเฉพาะบางคน).
   const memberExpenseTotals = tripMembers.map(m => {
+    const items: { title: string; date: string; amount: number }[] = [];
     let totalExpense = 0;
     trip.expenses.forEach(e => {
       const inSplit = e.splitWith.includes(m.name) || (m.id && e.splitWithIds?.includes(m.id));
       if (!inSplit) return;
+      let shareAmount = 0;
       if (e.customShares) {
         const v = m.id && e.customShares[m.id] !== undefined ? e.customShares[m.id] : e.customShares[m.name];
-        if (v !== undefined) { totalExpense += v; return; }
+        if (v !== undefined) shareAmount = v;
       }
-      const shareCount = e.splitWith.length || 1;
-      totalExpense += e.amount / shareCount;
+      if (shareAmount === 0) {
+        const shareCount = e.splitWith.length || 1;
+        shareAmount = e.amount / shareCount;
+      }
+      items.push({ title: e.title, date: e.date, amount: shareAmount });
+      totalExpense += shareAmount;
     });
-    return { ...m, totalExpense };
+    return { ...m, totalExpense, items };
   });
 
   // Step 3: recompute settlements after removing already-settled amounts from balances
@@ -668,19 +674,54 @@ export default function TripDetail({
                 <p className="text-slate-400 font-semibold text-xs mt-1">เพิ่มค่าใช้จ่ายใบแรกเพื่อดูยอดของแต่ละคน</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {memberExpenseTotals.map((m, i) => (
-                  <div key={i} className="flex items-center gap-3 rounded-2xl p-3 border border-slate-100 bg-slate-50/40 hover:bg-slate-50 transition-colors">
-                    <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 border border-slate-200">
-                      <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
+              <div className="space-y-2.5">
+                {memberExpenseTotals.map((m, i) => {
+                  const isExpanded = !!expandedMembers[m.name];
+                  return (
+                    <div key={i} className="rounded-2xl border border-slate-100 bg-slate-50/40 overflow-hidden transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => toggleMemberExpand(m.name)}
+                        className="w-full flex items-center gap-3 p-3 text-left cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 border border-slate-200">
+                          <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-extrabold text-slate-800 truncate">{m.name}</p>
+                          <p className="text-[10px] text-slate-400 font-bold">เข้าร่วม {m.items.length} รายการ</p>
+                        </div>
+                        <p className="text-base font-black text-slate-800 shrink-0">฿{m.totalExpense.toLocaleString()}</p>
+                        <span className="material-symbols-outlined text-slate-400 font-bold shrink-0 transition-transform duration-200 select-none">
+                          {isExpanded ? 'expand_less' : 'expand_more'}
+                        </span>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-dashed border-slate-200 bg-white px-4 py-3 animate-fade-in font-mono text-xs">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center pb-2 border-b border-dotted border-slate-200">
+                            ใบเสร็จส่วนแบ่ง • {m.name}
+                          </p>
+                          <div className="space-y-1.5 pt-2">
+                            {m.items.map((item, idx) => (
+                              <div key={idx} className="flex items-baseline justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-extrabold text-slate-700 truncate">{item.title}</p>
+                                  <p className="text-[9px] text-slate-400 font-bold">{item.date}</p>
+                                </div>
+                                <p className="font-black text-slate-800 shrink-0">฿{item.amount.toLocaleString()}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2.5 pt-2 border-t border-dashed border-slate-200 flex items-baseline justify-between">
+                            <p className="font-black text-slate-600">ยอดรวม</p>
+                            <p className="font-black text-slate-900 text-sm">฿{m.totalExpense.toLocaleString()}</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-extrabold text-slate-800 truncate">{m.name}</p>
-                      <p className="text-[10px] text-slate-400 font-bold">ส่วนแบ่งค่าใช้จ่ายในทริป</p>
-                    </div>
-                    <p className="text-base font-black text-slate-800 shrink-0">฿{m.totalExpense.toLocaleString()}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -973,171 +1014,6 @@ export default function TripDetail({
               ))}
             </div>
           )}
-
-          <div className="border-t border-slate-100 pt-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-base font-extrabold text-slate-800">รายละเอียดค่าใช้จ่ายรายบุคคล</h4>
-                <p className="text-xs text-slate-400 font-semibold mt-0.5">คลิกแต่ละคนเพื่อดูรายละเอียดค่าใช้จ่ายที่ออกก่อนและต้องจ่าย</p>
-              </div>
-              <span className="material-symbols-outlined text-primary text-xl">expand</span>
-            </div>
-
-            <div className="space-y-3">
-              {tripMembers.map((member, idx) => {
-                const isExpanded = !!expandedMembers[member.name];
-                
-                const paidExpenses = trip.expenses.filter(e => e.paidBy === member.name);
-                
-                const sharedExpenses = trip.expenses.filter(e => e.splitWith.includes(member.name)).map(e => {
-                  let shareAmount = 0;
-                  if (e.customShares) {
-                    const id = member.id;
-                    if (id && e.customShares[id] !== undefined) {
-                      shareAmount = e.customShares[id];
-                    } else if (e.customShares[member.name] !== undefined) {
-                      shareAmount = e.customShares[member.name];
-                    } else {
-                      const shareCount = e.splitWith.length || 1;
-                      shareAmount = e.amount / shareCount;
-                    }
-                  } else {
-                    const shareCount = e.splitWith.length || 1;
-                    shareAmount = e.amount / shareCount;
-                  }
-                  return {
-                    ...e,
-                    shareAmount
-                  };
-                });
-
-                const balance = member.netBalance;
-
-                return (
-                  <div key={idx} className="border border-slate-150 rounded-2xl overflow-hidden transition-all duration-200 hover:border-slate-300 bg-slate-50/20">
-                    <button 
-                      type="button"
-                      onClick={() => toggleMemberExpand(member.name)}
-                      className="w-full text-left p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-slate-200">
-                          <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-extrabold text-slate-800">{member.name}</p>
-                            {balance < 0 ? (
-                              <span className="inline-flex items-center gap-0.5 text-[9px] bg-secondary-orange-light text-secondary-orange px-2 py-0.5 rounded-full font-black">
-                                <span className="material-symbols-outlined text-[10px] font-bold">schedule</span>
-                                ค้างจ่าย ฿{Math.round(Math.abs(balance)).toLocaleString()}
-                              </span>
-                            ) : balance > 0 ? (
-                              <span className="inline-flex items-center gap-0.5 text-[9px] bg-primary-light text-primary px-2 py-0.5 rounded-full font-black">
-                                <span className="material-symbols-outlined text-[10px] font-bold">payments</span>
-                                รับคืน ฿{Math.round(balance).toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-0.5 text-[9px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black">
-                                <span className="material-symbols-outlined text-[10px] font-bold">check_circle</span>
-                                จ่ายแล้ว
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 sm:flex items-center gap-4 sm:gap-6 text-xs w-full sm:w-auto">
-                        <div className="text-left sm:text-right">
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">ออกก่อน</p>
-                          <p className="text-sm font-extrabold text-slate-700">฿{member.totalPaid.toLocaleString()}</p>
-                        </div>
-                        <div className="text-left sm:text-right">
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">ต้องจ่าย</p>
-                          <p className="text-sm font-extrabold text-slate-700">฿{member.totalShare.toLocaleString()}</p>
-                        </div>
-                        <div className="text-left sm:text-right">
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">ส่วนต่าง</p>
-                          <p className={`text-sm font-black ${
-                            balance > 0 ? 'text-tertiary-green' : balance < 0 ? 'text-secondary-orange' : 'text-slate-500'
-                          }`}>
-                            {balance > 0 ? `+฿${balance.toLocaleString()}` : balance < 0 ? `-฿${Math.abs(balance).toLocaleString()}` : '฿0'}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="hidden sm:block">
-                        <span className="material-symbols-outlined text-slate-400 font-bold transition-transform duration-200 select-none">
-                          {isExpanded ? 'expand_less' : 'expand_more'}
-                        </span>
-                      </div>
-                    </button>
-
-                    {isExpanded && (
-                      <div className="border-t border-slate-150 bg-white p-4 sm:p-5 space-y-4 animate-fade-in text-xs">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                          <div className="space-y-2.5">
-                            <h5 className="font-extrabold text-slate-700 flex items-center gap-1.5 pb-1 border-b border-slate-100">
-                              <span className="material-symbols-outlined text-tertiary-green text-sm font-bold">check_circle</span>
-                              <span>รายการที่ออกก่อน (฿{member.totalPaid.toLocaleString()})</span>
-                            </h5>
-                            {paidExpenses.length === 0 ? (
-                              <p className="text-slate-400 font-semibold italic text-center py-2">ไม่มีรายการที่ออกก่อน</p>
-                            ) : (
-                              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                {paidExpenses.map((e, index) => (
-                                  <div key={index} className="flex justify-between items-center bg-slate-50/50 p-2 rounded-lg border border-slate-100">
-                                    <div className="space-y-0.5">
-                                      <p className="font-extrabold text-slate-700">{e.title}</p>
-                                      <p className="text-[10px] text-slate-400 font-bold">{e.date} • {({
-    Food: 'อาหาร',
-    Travel: 'เดินทาง',
-    Accommodation: 'ที่พัก',
-    Shopping: 'ช้อปปิ้ง',
-    Activities: 'กิจกรรม',
-  } as Record<string,string>)[e.category] || 'อื่นๆ'}</p>
-                                    </div>
-                                    <p className="font-extrabold text-slate-800">฿{e.amount.toLocaleString()}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="space-y-2.5">
-                            <h5 className="font-extrabold text-slate-700 flex items-center gap-1.5 pb-1 border-b border-slate-100">
-                              <span className="material-symbols-outlined text-primary text-sm font-bold">groups</span>
-                              <span>รายการที่ร่วมจ่าย (฿{member.totalShare.toLocaleString()})</span>
-                            </h5>
-                            {sharedExpenses.length === 0 ? (
-                              <p className="text-slate-400 font-semibold italic text-center py-2">ไม่มีรายการที่ร่วมจ่าย</p>
-                            ) : (
-                              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                                {sharedExpenses.map((e, index) => (
-                                  <div key={index} className="flex justify-between items-center bg-slate-50/50 p-2 rounded-lg border border-slate-100">
-                                    <div className="space-y-0.5">
-                                      <p className="font-extrabold text-slate-700">{e.title}</p>
-                                      <p className="text-[10px] text-slate-400 font-bold">
-                                        {e.date} • {e.customShares ? 'หารไม่เท่า' : `หารเท่ากัน ${e.splitWith.length} คน`}
-                                      </p>
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="font-extrabold text-slate-800">฿{e.shareAmount.toLocaleString()}</p>
-                                      <p className="text-[9px] text-slate-400 font-bold">จากยอดเต็ม ฿{e.amount.toLocaleString()}</p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
       )}
 
