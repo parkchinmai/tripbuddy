@@ -641,29 +641,27 @@ export default function TripDetail({
         </div>
 
         {/* GAME STYLE: leaderboard of total spent per member */}
-        <div className="relative overflow-hidden rounded-3xl shadow-sm bg-gradient-to-br from-[#1e1b4b] via-[#312e81] to-[#4c1d95] border border-indigo-800/40 animate-fade-in">
-          <div className="absolute -top-20 -right-16 w-60 h-60 rounded-full bg-violet-400/10 pointer-events-none"></div>
-          <div className="absolute -bottom-24 -left-16 w-64 h-64 rounded-full bg-amber-300/10 pointer-events-none"></div>
-          <div className="relative p-6 sm:p-7">
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
-                  <span className="material-symbols-outlined text-amber-300 text-[22px] font-bold">emoji_events</span>
-                  สุดยอดนักสปอนเซอร์ประจำทริป
-                </h3>
-                <p className="text-xs text-white/60 font-semibold mt-0.5">จัดอันดับใครควักเงินสปอนเซอร์มากที่สุดในทริปนี้</p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className="text-[10px] text-white/50 font-bold uppercase">ยอดรวมทั้งทริป</p>
-                <p className="text-lg font-black text-amber-300">฿{totalSpent.toLocaleString()}</p>
-              </div>
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden animate-fade-in">
+          <div className="px-6 sm:px-7 py-5 border-b border-slate-100 flex items-start justify-between gap-4 bg-slate-50/50">
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-500 text-[22px] font-bold">emoji_events</span>
+                ยอดค่าใช้จ่ายของแต่ละคน
+              </h3>
+              <p className="text-xs text-slate-400 font-semibold mt-0.5">จัดอันดับใครควักเงินสปอนเซอร์มากที่สุดในทริปนี้</p>
             </div>
+            <div className="text-right shrink-0">
+              <p className="text-[10px] text-slate-400 font-bold uppercase">ยอดรวมทั้งทริป</p>
+              <p className="text-lg font-black text-primary">฿{totalSpent.toLocaleString()}</p>
+            </div>
+          </div>
 
+          <div className="p-5 sm:p-6">
             {spenderRanking.length === 0 ? (
-              <div className="rounded-2xl bg-white/5 border border-white/10 p-8 text-center">
-                <span className="material-symbols-outlined text-white/30 text-4xl mb-2 inline-block">savings</span>
-                <p className="text-white/70 font-bold text-sm">ยังไม่มีใครเสียเงินในทริปนี้</p>
-                <p className="text-white/40 font-semibold text-xs mt-1">เพิ่มค่าใช้จ่ายใบแรกเพื่อเริ่มจัดอันดับ!</p>
+              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-8 text-center">
+                <span className="material-symbols-outlined text-slate-300 text-4xl mb-2 inline-block">savings</span>
+                <p className="text-slate-500 font-bold text-sm">ยังไม่มีใครเสียเงินในทริปนี้</p>
+                <p className="text-slate-400 font-semibold text-xs mt-1">เพิ่มค่าใช้จ่ายใบแรกเพื่อเริ่มจัดอันดับ!</p>
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -673,47 +671,46 @@ export default function TripDetail({
                   const titles = ['จ้าวสปอนเซอร์', 'รองจ้าวสปอนเซอร์', 'นักสปอนเซอร์มือทอง', 'ผู้สนับสนุนหัวใจนักลงทุน'];
                   const rankBadge = [
                     'bg-gradient-to-br from-amber-300 to-yellow-500 text-amber-950',
-                    'bg-gradient-to-br from-slate-200 to-slate-400 text-slate-800',
+                    'bg-gradient-to-br from-slate-200 to-slate-400 text-slate-700',
                     'bg-gradient-to-br from-orange-300 to-amber-700 text-amber-950',
-                    'bg-white/10 text-white/70',
+                    'bg-slate-100 text-slate-400',
                   ];
                   const barColor = [
-                    'bg-gradient-to-r from-amber-300 to-yellow-400',
-                    'bg-gradient-to-r from-slate-200 to-slate-400',
+                    'bg-gradient-to-r from-amber-400 to-yellow-500',
+                    'bg-gradient-to-r from-slate-300 to-slate-400',
                     'bg-gradient-to-r from-orange-400 to-amber-500',
-                    'bg-gradient-to-r from-indigo-400 to-purple-400',
+                    'bg-slate-300',
                   ];
+                  const titleColor = isTop3 ? 'text-amber-600' : 'text-slate-400';
                   const crown = i === 0;
                   return (
                     <div key={i} className={`flex items-center gap-3 rounded-2xl p-3 border transition-all ${
-                      isTop3 ? 'bg-white/10 border-white/15' : 'bg-white/5 border-white/5'
+                      isTop3 ? 'bg-amber-50/40 border-amber-100' : 'bg-slate-50/40 border-slate-100'
                     }`}>
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0 shadow-lg ${rankBadge[i] || rankBadge[3]}`}>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0 shadow ${rankBadge[i] || rankBadge[3]}`}>
                         {i + 1}
                       </div>
                       <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                        <div className={`relative w-9 h-9 rounded-full overflow-hidden shrink-0 border-2 ${isTop3 ? 'border-amber-300/80' : 'border-white/20'}`}>
+                        <div className={`relative w-9 h-9 rounded-full overflow-hidden shrink-0 border-2 ${isTop3 ? 'border-amber-300' : 'border-slate-200'}`}>
                           <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-extrabold text-white truncate flex items-center gap-1">
+                          <p className="text-sm font-extrabold text-slate-800 truncate flex items-center gap-1">
                             {m.name}
-                            {crown && <span className="material-symbols-outlined text-amber-300 text-[15px] font-bold">crown</span>}
+                            {crown && <span className="material-symbols-outlined text-amber-500 text-[15px] font-bold">crown</span>}
                           </p>
-                          <p className={`text-[10px] font-black ${isTop3 ? 'text-amber-300' : 'text-white/45'}`}>
-                            {titles[i] || titles[3]}
-                          </p>
+                          <p className={`text-[10px] font-black ${titleColor}`}>{titles[i] || titles[3]}</p>
                         </div>
                       </div>
                       <div className="hidden md:block w-32 lg:w-40">
-                        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
                           <div className={`h-full rounded-full transition-all duration-700 ease-out ${barColor[i] || barColor[3]}`} style={{ width: `${Math.max(pct, 4)}%` }}></div>
                         </div>
-                        <p className="text-[9px] text-white/50 font-bold mt-1 text-right">{pct}%</p>
+                        <p className="text-[9px] text-slate-400 font-bold mt-1 text-right">{pct}%</p>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-sm font-black text-white">฿{m.spent.toLocaleString()}</p>
-                        <p className="text-[9px] text-white/50 font-bold">เสียไปในทริป</p>
+                        <p className="text-sm font-black text-slate-800">฿{m.spent.toLocaleString()}</p>
+                        <p className="text-[9px] text-slate-400 font-bold">เสียไปในทริป</p>
                       </div>
                     </div>
                   );
