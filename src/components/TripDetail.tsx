@@ -15,7 +15,7 @@ export interface SettlementState {
   isSettled: boolean;
   slipUrl?: string;
   confirmedBy?: string;
-  settledAmount?: number; // total amount transferred for this pair (confirmed or awaiting confirmation)
+  settledAmount?: number; // total amount transferred for this pair (slip attached = paid)
 }
 
 interface TripDetailProps {
@@ -299,7 +299,6 @@ export default function TripDetail({
     return {
       ...s,
       isSettled: isFullySettled,
-      confirmed: stateFound?.isSettled === true,
       isPendingOnly: false,
       slipUrl: stateFound?.slipUrl,
       confirmedBy: stateFound?.confirmedBy,
@@ -815,13 +814,9 @@ export default function TripDetail({
                       </div>
                     ) : settlement.slipUrl ? (
                       <div className="flex flex-col items-end gap-1 mt-1">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 ${
-                          settlement.confirmed ? 'bg-tertiary-green-light text-tertiary-green' : 'bg-secondary-orange-light text-secondary-orange'
-                        }`}>
-                          <span className="material-symbols-outlined text-[12px] font-bold">
-                            {settlement.confirmed ? 'check_circle' : 'hourglass'}
-                          </span>
-                          <span>{settlement.confirmed ? 'โอนแล้ว' : 'รอยืนยัน'}</span>
+                        <span className="text-[10px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black flex items-center gap-0.5">
+                          <span className="material-symbols-outlined text-[12px] font-bold">check_circle</span>
+                          <span>โอนแล้ว</span>
                         </span>
                         <div className="flex items-center gap-1">
                           <button
@@ -831,7 +826,7 @@ export default function TripDetail({
                             <span className="material-symbols-outlined text-[12px]">image</span>
                             <span>ดูสลิป</span>
                           </button>
-                          {currentUserName === settlement.from && !settlement.confirmed && (
+                          {currentUserName === settlement.from && (
                             <button
                               onClick={() => cancelSettlementSlip(settlement.from, settlement.to, settlement.slipUrl!)}
                               className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 hover:bg-rose-100 transition-colors cursor-pointer"
@@ -840,31 +835,7 @@ export default function TripDetail({
                               <span>ยกเลิกสลิป</span>
                             </button>
                           )}
-                          {currentUserName === settlement.to && !settlement.confirmed && (
-                            <button
-                              onClick={async () => {
-                                const s = settlements.find(x => x.from === settlement.from && x.to === settlement.to);
-                                if (!s) return;
-                                const confirmAmount = s.settledAmount || s.amount;
-                                if (!window.confirm(`ยืนยันว่าได้รับเงิน ฿${confirmAmount.toLocaleString()} จาก ${s.from} เรียบร้อยแล้ว?`)) return;
-                                const key = `${s.from}-${s.to}`;
-                                setSettlementStates(prev => ({
-                                  ...prev,
-                                  [key]: { ...prev[key], isSettled: true, confirmedBy: currentUserName, settledAmount: confirmAmount }
-                                }));
-                                await fetch(`/api/trips/${trip.id}/settlements`, {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ settlement_key: key, status: 'confirmed', confirmed_by: currentUserName, settled_amount: confirmAmount }),
-                                }).catch(() => {});
-                              }}
-                              className="text-[10px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 hover:bg-tertiary-green hover:text-white transition-colors cursor-pointer"
-                            >
-                              <span className="material-symbols-outlined text-[12px]">check_circle</span>
-                              <span>ยืนยัน</span>
-                            </button>
-                          )}
-                          {settlement.confirmed && settlement.amount > 0 && (
+                          {settlement.settledAmount < settlement.amount && (
                             <button
                               onClick={() => setActiveSettleIndex(index)}
                               className="text-[10px] bg-secondary-orange hover:bg-secondary-orange-hover text-white px-2 py-0.5 rounded-full font-black flex items-center gap-0.5 transition-colors cursor-pointer"
@@ -875,7 +846,7 @@ export default function TripDetail({
                           )}
                         </div>
                       </div>
-                    ) : settlement.slipUrl ? null : (
+                    ) : (
                       <button 
                         onClick={() => setActiveSettleIndex(index)}
                         className="bg-secondary-orange hover:bg-secondary-orange-hover text-white font-extrabold text-[11px] px-3 py-1 rounded-full shadow-sm cursor-pointer flex items-center gap-0.5 transition-all hover:scale-[1.02] active:scale-95 mt-1"
@@ -1359,16 +1330,17 @@ export default function TripDetail({
                     }
                   }
                   const key = `${s.from}-${s.to}`;
+                  const paidAmount = (settlements[activeSettleIndex!].settledAmount || 0) + s.amount;
                   setSettlementStates(prev => ({
                     ...prev,
-                    [key]: { ...prev[key], isSettled: false, slipUrl }
+                    [key]: { ...prev[key], isSettled: true, slipUrl, confirmedBy: currentUserName, settledAmount: paidAmount }
                   }));
                   await fetch(`/api/trips/${trip.id}/settlements`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ settlement_key: key, status: 'pending', slip_url: slipUrl || null }),
+                    body: JSON.stringify({ settlement_key: key, status: 'confirmed', slip_url: slipUrl || null, confirmed_by: currentUserName, settled_amount: paidAmount }),
                   }).catch(() => {});
-                  alert(`แนบสลิปจาก ${s.from} ไปยัง ${s.to} เรียบร้อย! รอให้ ${s.to} ยืนยันการรับเงิน`);
+                  alert(`แนบสลิปจาก ${s.from} ไปยัง ${s.to} เรียบร้อยแล้ว`);
                   setActiveSettleIndex(null);
                   setSettleSlipAttached(false);
                   setSettleSlipName('');

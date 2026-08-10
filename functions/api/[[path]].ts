@@ -633,7 +633,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
       // just store what it sends rather than accumulating ourselves.
       const newSettledAmount = settled_amount != null ? settled_amount : ((existing as any).settled_amount || 0);
       await db.prepare(
-        `UPDATE settlements SET status = ?, slip_url = COALESCE(?, slip_url), confirmed_by = COALESCE(?, confirmed_by), settled_amount = ?, updated_at = datetime('now', '+7 hours')
+        `UPDATE settlements SET status = ?, slip_url = ?, confirmed_by = ?, settled_amount = ?, updated_at = datetime('now', '+7 hours')
          WHERE trip_id = ? AND settlement_key = ?`
       ).bind(status || 'pending', slip_url || null, confirmed_by || null, newSettledAmount, tripId, settlement_key).run();
     } else {
