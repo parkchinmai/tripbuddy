@@ -200,11 +200,10 @@ export default function TripDetail({
     const fromName = parts[0];
     const toName = parts[1];
 
-    // Money has already moved whenever a slip exists, whether the creditor has
-    // confirmed it or not. Pending only means the slip still needs confirmation,
-    // not that the transfer didn't happen, so both states reduce the balances.
-    // Otherwise a later expense would re-allocate an already-paid amount to others.
-    if (!(state.slipUrl || state.isSettled)) return;
+    // Only confirmed payments count toward the balances. A slip is merely evidence
+    // that money was transferred and must not influence the calculation until the
+    // creditor confirms receipt.
+    if (!state.isSettled) return;
     let paidVal = state.settledAmount || 0;
     if (paidVal === 0) {
       // Fallback: old record was settled but settledAmount wasn't set.
@@ -254,7 +253,7 @@ export default function TripDetail({
       }
     }
 
-    let alreadySettled = stateFound?.settledAmount || 0;
+    let alreadySettled = stateFound?.isSettled ? (stateFound?.settledAmount || 0) : 0;
     if (alreadySettled === 0 && stateFound?.isSettled) {
       const keyAmount = matchedOldKey ? parseFloat(matchedOldKey.split('-').pop() || '') : NaN;
       const rawMatch = rawSettlements.find(r => r.from === s.from && r.to === s.to);
@@ -271,46 +270,6 @@ export default function TripDetail({
       confirmedBy: stateFound?.confirmedBy,
       settledAmount: alreadySettled,
     };
-  });
-
-  // Pairs with an unconfirmed slip whose remaining balance has dropped to zero are not
-  // produced by the recompute, but the slip must stay visible so the creditor can still
-  // review and confirm it. Re-add those pairs to the list.
-  (Object.entries(settlementStates) as [string, SettlementState][]).forEach(([key, state]) => {
-    if (state.isSettled || !state.slipUrl) return;
-    const parts = key.split('-');
-    if (parts.length < 2) return;
-    const from = parts[0];
-    const to = parts[1];
-    // A pending slip for a pair that also has a confirmed record (under either key
-    // format) is a leftover duplicate from the key-format migration, not a new transfer.
-    const hasConfirmedPair = (Object.entries(settlementStates) as [string, SettlementState][]).some(
-      ([k2, s2]) => k2 !== key && s2.isSettled && (k2 === `${from}-${to}` || k2.startsWith(`${from}-${to}-`)),
-    );
-    if (hasConfirmedPair) return;
-    let transferred = state.settledAmount || 0;
-    if (transferred <= 0) {
-      const keyAmount = parseFloat(parts[2]);
-      const rawMatch = rawSettlements.find(r => r.from === from && r.to === to);
-      transferred = Number.isFinite(keyAmount) && keyAmount > 0 ? keyAmount : (rawMatch ? rawMatch.amount : 0);
-    }
-    if (transferred <= 0) return;
-    if (settlements.some(x => x.from === from && x.to === to)) return;
-    const fromMember = baseTripMembers.find(m => m.name === from);
-    const toMember = baseTripMembers.find(m => m.name === to);
-    settlements.push({
-      from,
-      to,
-      amount: transferred,
-      fromBankAccount: fromMember?.bankAccount || '',
-      toBankAccount: toMember?.bankAccount || '',
-      isSettled: false,
-      confirmed: false,
-      isPendingOnly: true,
-      slipUrl: state.slipUrl,
-      confirmedBy: state.confirmedBy,
-      settledAmount: transferred,
-    });
   });
 
   // Members who fully cleared their debt (confirmed payment and net balance is now 0)
@@ -1338,16 +1297,14 @@ export default function TripDetail({
                     }
                   }
                   const key = `${s.from}-${s.to}`;
-                  const prevSettled = settlementStates[key]?.settledAmount || 0;
-                  const newTotal = prevSettled + (s.amount || 0);
                   setSettlementStates(prev => ({
                     ...prev,
-                    [key]: { ...prev[key], isSettled: false, slipUrl, settledAmount: newTotal }
+                    [key]: { ...prev[key], isSettled: false, slipUrl }
                   }));
                   await fetch(`/api/trips/${trip.id}/settlements`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ settlement_key: key, status: 'pending', slip_url: slipUrl || null, settled_amount: newTotal }),
+                    body: JSON.stringify({ settlement_key: key, status: 'pending', slip_url: slipUrl || null }),
                   }).catch(() => {});
                   alert(`แนบสลิปจาก ${s.from} ไปยัง ${s.to} เรียบร้อย! รอให้ ${s.to} ยืนยันการรับเงิน`);
                   setActiveSettleIndex(null);
