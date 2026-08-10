@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Trip } from '../types';
+import { Trip, Expense } from '../types';
 import { formatDateRange, calculateSettlements, extractAccountNumber, getFallbackAvatar } from '../data';
 import { uploadImage } from '../lib/r2';
 import CopyBtn from './CopyBtn';
@@ -29,6 +29,7 @@ interface TripDetailProps {
   onDeleteTrip: () => void;
   currentUserName?: string;
   currentUserPhone?: string;
+  isAdmin?: boolean;
 }
 
 type TabType = 'overview' | 'expenses' | 'settlement' | 'companions' | 'notes';
@@ -77,11 +78,14 @@ const getTripMembers = (trip: Trip, memberProfiles: any[] = []) => {
     const phone = profile?.phone || '08X-XXX-XXXX';
 
     const totalPaid = trip.expenses
-      .filter(e => e.paidBy === name || e.paidBy === memberId || e.paidById === memberId)
+      .filter(e => !e.collected && (e.paidBy === name || e.paidBy === memberId || e.paidById === memberId))
       .reduce((sum, e) => sum + e.amount, 0);
 
     const totalShare = trip.expenses
       .filter(e => {
+        // Expenses already fully collected before the trip ends are excluded from the
+        // settlement summary; they are treated as closed.
+        if (e.collected) return false;
         if (e.splitWith.includes(name)) return true;
         if (memberId && e.splitWithIds?.includes(memberId)) return true;
         return false;
@@ -118,7 +122,8 @@ export default function TripDetail({
   onUpdateTripMembers,
   onDeleteTrip,
   currentUserName,
-  currentUserPhone
+  currentUserPhone,
+  isAdmin
 }: TripDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedSlip, setSelectedSlip] = useState<string | null>(null);
@@ -127,6 +132,29 @@ export default function TripDetail({
   const profileNameById = (id: string): string => {
     const p = memberProfiles.find(m => m.id === id);
     return p ? p.name : id;
+  };
+
+  // Mark an expense as fully collected (e.g. money gathered before the trip ends), so it
+  // is excluded from the settlement summary. Only the payer or the admin may toggle it.
+  const canToggleCollected = (expense: Expense) =>
+    isAdmin || (!!currentUserName && expense.paidBy === currentUserName);
+
+  const toggleExpenseCollected = async (expense: Expense) => {
+    const next = !expense.collected;
+    if (next && !window.confirm('ยืนยันว่าเรียกเก็บค่าใช้จ่ายนี้ครบแล้ว? รายการจะถูกตัดออกจากสรุปยอดที่ต้องเคลียร์กัน')) return;
+    try {
+      const res = await fetch(`/api/expenses/${expense.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collected: next }),
+      });
+      if (!res.ok) throw new Error('update failed');
+      onUpdateTrip({
+        expenses: trip.expenses.map(e => (e.id === expense.id ? { ...e, collected: next } : e)),
+      });
+    } catch {
+      alert('อัปเดตสถานะไม่สำเร็จ กรุณาลองอีกครั้ง');
+    }
   };
 
   useEffect(() => {
@@ -542,7 +570,15 @@ export default function TripDetail({
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
                         <p className="text-sm sm:text-base font-bold text-slate-800 truncate">{expense.title}</p>
+                        {expense.collected && (
+                          <span className="text-[10px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black shrink-0 flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[11px]">check_circle</span>
+                            เรียกเก็บแล้ว
+                          </span>
+                        )}
+                      </div>
                         <div className="flex flex-col sm:flex-row sm:items-start sm:gap-2 text-slate-400">
                           <span className="text-[11px] sm:text-xs font-semibold">
                             {expense.date} • จ่ายโดย: <span className="font-bold text-slate-600">{expense.paidBy}</span>
@@ -626,7 +662,15 @@ export default function TripDetail({
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm sm:text-base font-bold text-slate-800 truncate">{expense.title}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-sm sm:text-base font-bold text-slate-800 truncate">{expense.title}</p>
+                        {expense.collected && (
+                          <span className="text-[10px] bg-tertiary-green-light text-tertiary-green px-2 py-0.5 rounded-full font-black shrink-0 flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[11px]">check_circle</span>
+                            เรียกเก็บแล้ว
+                          </span>
+                        )}
+                      </div>
                       <div className="flex flex-col sm:flex-row sm:items-start sm:gap-2 text-slate-400">
                         <span className="text-[11px] sm:text-xs font-semibold">
                           {expense.date} • จ่ายโดย: <span className="font-bold text-slate-600">{expense.paidBy}</span>
@@ -646,6 +690,17 @@ export default function TripDetail({
                       <p className="text-base sm:text-lg font-extrabold text-slate-800">฿{expense.amount.toLocaleString()}</p>
                     </div>
                     <div className="flex items-center gap-1">
+                      {canToggleCollected(expense) && (
+                        <button 
+                          onClick={() => toggleExpenseCollected(expense)}
+                          className={`p-2 rounded-full transition-colors cursor-pointer shrink-0 ${
+                            expense.collected ? 'hover:bg-tertiary-green-light text-tertiary-green' : 'hover:bg-slate-100 text-slate-400'
+                          }`}
+                          title={expense.collected ? 'เปิดรายการอีกครั้ง (ยกเลิกสถานะเรียกเก็บแล้ว)' : 'ทำเครื่องหมายว่าเรียกเก็บแล้ว'}
+                        >
+                          <span className="material-symbols-outlined text-[20px]">{expense.collected ? 'check_circle' : 'check_circle_outline'}</span>
+                        </button>
+                      )}
                       {onEditExpense && (
                         <button 
                           onClick={() => onEditExpense(expense.id)}

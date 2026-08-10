@@ -26,6 +26,7 @@ export interface Expense {
   splitWithIds?: string[];
   customShares?: Record<string, number>;
   slipUrl?: string;
+  collected?: boolean;
   mode?: 'simple' | 'split';
   splitItems?: BillItem[];
   feeMode?: FeeMode;

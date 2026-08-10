@@ -271,6 +271,7 @@ export default function App() {
               splitWithIds: e.split_with_ids ? JSON.parse(e.split_with_ids) : undefined,
               customShares: e.custom_shares ? JSON.parse(e.custom_shares) : undefined,
               slipUrl: e.slip_url || undefined,
+              collected: !!e.collected,
               mode: e.mode || undefined,
               splitItems: e.split_items ? JSON.parse(e.split_items) : undefined,
               feeMode: e.fee_mode || undefined,
@@ -452,6 +453,7 @@ export default function App() {
           onDeleteTrip={() => handleDeleteTrip(currentTrip.id)}
           currentUserName={profile.name}
           currentUserPhone={profile.phone}
+          isAdmin={profile.isAdmin}
         />
       );
     }

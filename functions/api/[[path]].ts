@@ -96,6 +96,11 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
     }
     const trip = await db.prepare('SELECT * FROM trips WHERE id = ?').bind(id).first();
     if (!trip) return json({ error: 'ไม่พบทริป' }, 404, cors);
+    // Migrate: add "collected" flag to expenses (idempotent) — marks an expense as
+    // fully collected before the trip ends so it is excluded from the settlement summary.
+    try {
+      await db.prepare(`ALTER TABLE expenses ADD COLUMN collected INTEGER NOT NULL DEFAULT 0`).run();
+    } catch { /* column already exists */ }
     const { results: rawExpenses } = await db.prepare(
       'SELECT * FROM expenses WHERE trip_id = ? ORDER BY date DESC'
     ).bind(id).all();
@@ -133,6 +138,7 @@ async function handle(request: Request, env: any, db: any, url: URL, path: strin
         split_with: JSON.stringify(splitWithNames),
         split_with_ids: JSON.stringify(splitWithIds),
         split_with_names: splitWithNames,
+        collected: e.collected === 1,
       });
     }
 
